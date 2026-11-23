@@ -1,0 +1,1663 @@
+<!doctype html>
+<html lang="es-AR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Acta · Grabadora de reuniones</title>
+<meta name="description" content="Grabá y transcribí reuniones largas sin perder nada.">
+<meta name="robots" content="noindex,nofollow">
+<meta name="theme-color" content="#F5F5F2">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon-192.png">
+<style>
+:root{
+  --bg:#F5F5F2;--surface:#FFFFFF;--ink:#16171B;--ink-2:#565A62;--ink-3:#7C8088;--line:#E4E4DF;
+  --accent:#D92D20;--accent-ink:#B42318;--accent-soft:#FDECEA;
+  --ok:#0B7350;--ok-soft:#E5F3EC;--warn:#8F5200;--warn-soft:#FFF3DC;
+  --r-lg:20px;--r:14px;--r-sm:10px;
+  --sh:0 1px 2px rgba(16,17,20,.04),0 8px 24px rgba(16,17,20,.06);
+  --s-sec:40px;--s-head:24px;--s-block:28px;--s-card:16px;
+  --font:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  --mono:ui-monospace,"SF Mono","Cascadia Mono",Menlo,Consolas,monospace;
+  --nav-h:64px;--top-h:56px;
+}
+@media (min-width:768px){:root{--s-sec:56px;--s-head:32px;--s-block:40px;--s-card:20px}}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%;text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 var(--font);-webkit-font-smoothing:antialiased;overflow-x:hidden}
+button,input,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer}
+[hidden]{display:none!important}
+:focus-visible{outline:3px solid #2F6FEB;outline-offset:2px;border-radius:6px}
+.wrap{max-width:720px;margin:0 auto;padding:0 16px}
+@media (min-width:768px){.wrap{padding:0 20px}}
+h1,h2,h3{margin:0;line-height:1.2;letter-spacing:-.01em}
+h2{font-size:1.05rem;font-weight:650}
+.muted{color:var(--ink-2)}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+.small{font-size:.875rem}
+.tnum{font-variant-numeric:tabular-nums}
+
+/* Barra superior */
+.top{position:sticky;top:0;z-index:20;background:rgba(245,245,242,.92);-webkit-backdrop-filter:saturate(1.4) blur(8px);backdrop-filter:saturate(1.4) blur(8px);border-bottom:1px solid var(--line)}
+.top .wrap{height:var(--top-h);display:flex;align-items:center;justify-content:space-between;gap:12px}
+.brand{display:flex;align-items:center;gap:10px;font-weight:700;font-size:1.05rem;letter-spacing:-.01em}
+.brand svg{width:28px;height:28px}
+.top-right{display:flex;align-items:center;gap:8px}
+.sync{display:inline-flex;align-items:center;gap:6px;font-size:.8125rem;color:var(--ink-2);padding:6px 10px;border-radius:999px;background:var(--surface);border:1px solid var(--line)}
+.sync i{width:8px;height:8px;border-radius:50%;background:var(--ink-3)}
+.sync.ok i{background:var(--ok)}.sync.busy i{background:#2F6FEB}.sync.warn i{background:var(--warn)}
+
+/* Vistas */
+main{padding-bottom:calc(var(--nav-h) + env(safe-area-inset-bottom) + 24px)}
+.view{padding-top:var(--s-head)}
+.sec+.sec{margin-top:var(--s-block)}
+.sec-head{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-bottom:12px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);box-shadow:var(--sh)}
+
+/* Botones */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:48px;padding:0 18px;border-radius:var(--r);border:1px solid var(--line);background:var(--surface);font-weight:600;font-size:.9375rem;text-decoration:none;color:var(--ink);transition:background .15s,border-color .15s,transform .1s}
+.btn:hover{border-color:#CFCFC8;background:#FBFBF9}
+.btn:active{transform:scale(.98)}
+.btn svg{width:20px;height:20px;flex:none}
+.btn-primary{background:var(--ink);border-color:var(--ink);color:#fff}
+.btn-primary:hover{background:#2A2C31;border-color:#2A2C31}
+.btn-danger{background:var(--accent);border-color:var(--accent);color:#fff}
+.btn-danger:hover{background:var(--accent-ink);border-color:var(--accent-ink)}
+.btn-ghost{background:transparent;border-color:transparent}
+.btn-ghost:hover{background:rgba(22,23,27,.05);border-color:transparent}
+.btn-sm{min-height:44px;padding:0 14px;font-size:.875rem}
+.btn[disabled]{opacity:.5;pointer-events:none}
+.icon-btn{width:44px;height:44px;display:inline-grid;place-items:center;border-radius:12px;border:0;background:transparent;color:var(--ink)}
+.icon-btn:hover{background:rgba(22,23,27,.06)}
+.icon-btn svg{width:22px;height:22px}
+
+/* Inicio */
+.start{padding:28px 20px;text-align:center}
+.field{display:block;text-align:left}
+.field>span{display:block;font-size:.875rem;font-weight:600;margin-bottom:6px}
+.input,select.input,textarea.input{width:100%;min-height:48px;padding:12px 14px;font-size:16px;border:1px solid var(--line);border-radius:var(--r);background:#fff;outline:none;transition:border-color .15s}
+.input:focus{border-color:#9EA2A9}
+textarea.input{min-height:96px;resize:vertical;line-height:1.45}
+.rec-big{margin:28px auto 0;width:152px;height:152px;border-radius:50%;border:0;background:var(--accent);color:#fff;display:grid;place-items:center;box-shadow:0 10px 30px rgba(217,45,32,.28),inset 0 -4px 0 rgba(0,0,0,.08);transition:transform .15s,box-shadow .15s}
+.rec-big:hover{transform:translateY(-1px);box-shadow:0 14px 36px rgba(217,45,32,.34),inset 0 -4px 0 rgba(0,0,0,.08)}
+.rec-big:active{transform:scale(.97)}
+.rec-big span{display:flex;flex-direction:column;align-items:center;gap:6px;font-weight:700;font-size:1.0625rem}
+.rec-big svg{width:40px;height:40px}
+.rec-big[disabled]{opacity:.6}
+.start .hint{margin:18px auto 0;max-width:34ch;font-size:.875rem;color:var(--ink-2)}
+.health{display:grid;gap:8px;margin-top:20px;text-align:left}
+.health li{display:flex;gap:10px;align-items:flex-start;font-size:.875rem;color:var(--ink-2);list-style:none}
+.health ul{margin:0;padding:0;display:grid;gap:8px}
+.dot{width:8px;height:8px;border-radius:50%;margin-top:7px;flex:none;background:var(--ink-3)}
+.dot.ok{background:var(--ok)}.dot.warn{background:var(--warn)}.dot.bad{background:var(--accent)}
+
+.banner{display:flex;gap:12px;align-items:flex-start;padding:14px 16px;border-radius:var(--r);background:var(--warn-soft);color:#4A2C00;border:1px solid #F3DDB0;margin-bottom:var(--s-card)}
+.banner.ok{background:var(--ok-soft);border-color:#C4E5D5;color:#073D2B}
+.banner.bad{background:var(--accent-soft);border-color:#F6C9C4;color:#6E150F}
+.banner p{margin:0;font-size:.9rem}
+.banner .actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+
+/* Lista de sesiones */
+.list{list-style:none;margin:0;padding:0;display:grid;gap:12px}
+.item{display:block;width:100%;text-align:left;padding:16px;border-radius:var(--r-lg);border:1px solid var(--line);background:var(--surface);box-shadow:var(--sh);transition:border-color .15s,transform .15s}
+.item:hover{border-color:#CDCDC6;transform:translateY(-1px)}
+.item-top{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}
+.item h3{font-size:1rem;font-weight:650;overflow-wrap:anywhere}
+.item .meta{margin-top:4px;font-size:.8125rem;color:var(--ink-2)}
+.tags{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+.tag{display:inline-flex;align-items:center;gap:4px;font-size:.75rem;font-weight:600;padding:4px 10px;border-radius:999px;background:#EFEFEA;color:#3A3D43}
+.tag button{border:0;background:transparent;padding:0 0 0 2px;width:20px;height:20px;display:inline-grid;place-items:center;border-radius:50%;color:inherit}
+.tag button:hover{background:rgba(0,0,0,.08)}
+.badge{flex:none;font-size:.75rem;font-weight:650;padding:4px 10px;border-radius:999px;background:#EFEFEA;color:var(--ink-2);white-space:nowrap}
+.badge.rec{background:var(--accent-soft);color:var(--accent-ink)}
+.badge.warn{background:var(--warn-soft);color:var(--warn)}
+.badge.busy{background:#E8F0FE;color:#1D4FB8}
+.day{font-size:.8125rem;font-weight:650;color:var(--ink-3);text-transform:capitalize;margin:20px 0 8px}
+.day:first-child{margin-top:0}
+.empty{padding:32px 20px;text-align:center;color:var(--ink-2)}
+.filters{display:flex;gap:8px;overflow-x:auto;padding:12px 0 4px;scrollbar-width:none}
+.filters::-webkit-scrollbar{display:none}
+.chip{flex:none;min-height:40px;padding:0 14px;border-radius:999px;border:1px solid var(--line);background:var(--surface);font-size:.875rem;font-weight:600;color:var(--ink-2)}
+.chip[aria-pressed="true"]{color:var(--ink);border-color:var(--ink)}
+
+/* Grabación en curso */
+.live{display:flex;flex-direction:column;gap:12px;height:calc(100dvh - var(--top-h) - var(--nav-h) - env(safe-area-inset-bottom) - var(--s-head) - 16px);min-height:460px}
+main.is-live{padding-bottom:calc(var(--nav-h) + env(safe-area-inset-bottom) + 16px)}
+.live-head{padding:16px 20px;display:grid;gap:10px;flex:none}
+.live-row{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.pill{display:inline-flex;align-items:center;gap:8px;font-size:.875rem;font-weight:650;padding:6px 12px;border-radius:999px;background:var(--accent-soft);color:var(--accent-ink)}
+.pill i{width:10px;height:10px;border-radius:50%;background:var(--accent)}
+.pill.paused{background:var(--warn-soft);color:var(--warn)}.pill.paused i{background:var(--warn)}
+.pill.recon{background:var(--warn-soft);color:var(--warn)}.pill.recon i{background:var(--warn)}
+@media (prefers-reduced-motion:no-preference){.pill.rec i{animation:pulse 1.6s ease-in-out infinite}}
+@keyframes pulse{50%{opacity:.35}}
+.timer{font-size:2.5rem;font-weight:700;letter-spacing:-.02em;line-height:1;font-variant-numeric:tabular-nums}
+.meter{display:flex;align-items:flex-end;gap:3px;height:28px}
+.meter b{width:5px;border-radius:3px;background:#D8D8D2;height:20%;transition:height .12s}
+.meter b.on{background:var(--ink)}
+.live-sub{font-size:.8125rem;color:var(--ink-2);display:flex;flex-wrap:wrap;gap:4px 14px}
+.live-sub span{white-space:nowrap}
+.alerts{display:grid;gap:8px}
+.alerts{flex:none}
+.alerts:empty{display:none}
+.alerts .banner{margin:0;padding:10px 14px}
+.alerts .banner p{font-size:.84rem;line-height:1.4}
+.panel{position:relative}
+.live .panel{flex:1;min-height:0;display:flex;flex-direction:column}
+.transcript{padding:6px 20px 20px;max-height:none}
+.live .transcript{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain}
+.live .legend{flex:none;padding-top:10px;border-top:1px solid #F0F0EC;margin:0}
+.line{display:grid;grid-template-columns:62px 1fr;gap:10px;padding:8px 0;border-bottom:1px solid #F0F0EC;font-size:1rem;line-height:1.55}
+.line:last-child{border-bottom:0}
+.line time{font:600 .75rem/1.9 var(--mono);color:var(--ink-3)}
+.line.draft p{color:var(--ink-2)}
+.line.interim p{color:var(--ink-3);font-style:italic}
+.line.mark p{font-weight:650}
+.line.mark p::before{content:"★ ";color:var(--accent)}
+.line.gap p{color:var(--warn);font-weight:600}
+.line p{margin:0;overflow-wrap:anywhere}
+button.line{width:100%;text-align:left;background:transparent;border:0;border-bottom:1px solid #F0F0EC;color:inherit;border-radius:0}
+button.line:hover{background:#FAFAF8}
+.line.now{background:#FFF9E8}
+.to-end{position:absolute;right:16px;bottom:16px;box-shadow:var(--sh)}
+.controls{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;flex:none}
+.controls .btn{min-height:56px;flex-direction:column;gap:2px;font-size:.8125rem}
+.controls .btn svg{width:22px;height:22px}
+.legend{font-size:.75rem;color:var(--ink-3);padding:0 20px 14px}
+
+/* Detalle */
+.detail-head{display:flex;align-items:center;gap:8px;margin-bottom:12px}
+.title-input{font-size:1.25rem;font-weight:700;line-height:1.3;border:1px solid transparent;background:transparent;padding:8px;margin-left:-8px;border-radius:10px;width:100%;min-height:48px;resize:none;overflow:hidden;display:block}
+.title-input:hover{border-color:var(--line)}
+.title-input:focus{border-color:#9EA2A9;background:#fff;outline:none}
+.facts{display:flex;flex-wrap:wrap;gap:6px 16px;font-size:.875rem;color:var(--ink-2)}
+.player{padding:16px}
+.player audio{width:100%;height:48px}
+.parts{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+.actions-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.actions-grid .btn{padding:0 8px;gap:6px;font-size:.875rem}
+.actions-grid .btn-primary{grid-column:1/-1}
+@media (min-width:768px){.actions-grid{grid-template-columns:1.4fr 1fr 1fr 1fr}.actions-grid .btn-primary{grid-column:auto}}
+.progress{height:6px;border-radius:999px;background:#ECECE7;overflow:hidden;margin-top:8px}
+.progress b{display:block;height:100%;background:var(--ok);width:0;transition:width .3s}
+.add-tag{border:1px dashed #C9C9C2;background:transparent;font-size:.75rem;font-weight:600;padding:4px 12px;border-radius:999px;color:var(--ink-2);min-height:28px}
+.more{display:flex;flex-wrap:wrap;gap:10px}
+
+/* Ajustes */
+.form{display:grid;gap:18px;padding:20px}
+.switch{display:flex;align-items:center;justify-content:space-between;gap:16px;min-height:48px}
+.switch input{appearance:none;-webkit-appearance:none;width:52px;height:32px;border-radius:999px;background:#D5D5CF;position:relative;flex:none;cursor:pointer;transition:background .15s;margin:0}
+.switch input::after{content:"";position:absolute;top:3px;left:3px;width:26px;height:26px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.2);transition:transform .15s}
+.switch input:checked{background:var(--ink)}
+.switch input:checked::after{transform:translateX(20px)}
+.help{font-size:.8125rem;color:var(--ink-2);margin:6px 0 0}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:6px 14px;font-size:.875rem}
+.kv dt{color:var(--ink-2)}.kv dd{margin:0;font-weight:600;text-align:right}
+
+/* Navegación inferior */
+.tabs{position:fixed;left:0;right:0;bottom:0;z-index:30;background:rgba(255,255,255,.96);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);border-top:1px solid var(--line);padding-bottom:env(safe-area-inset-bottom)}
+.tabs .wrap{display:grid;grid-template-columns:repeat(3,1fr);height:var(--nav-h)}
+.tab{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;border:0;background:transparent;font-size:.75rem;font-weight:600;color:var(--ink-3)}
+.tab svg{width:22px;height:22px}
+.tab[aria-current="page"]{color:var(--ink)}
+.tab[aria-current="page"]::before{content:"";position:absolute;top:0;left:30%;right:30%;height:3px;border-radius:0 0 3px 3px;background:var(--accent)}
+.rec-float{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(var(--nav-h) + env(safe-area-inset-bottom) + 12px);z-index:31;display:inline-flex;align-items:center;gap:10px;min-height:44px;padding:0 16px;border-radius:999px;border:0;background:var(--ink);color:#fff;font-weight:650;font-size:.875rem;box-shadow:0 8px 24px rgba(0,0,0,.2)}
+.rec-float i{width:10px;height:10px;border-radius:50%;background:var(--accent)}
+
+/* Pantalla atenuada (ahorro de batería en pantallas OLED) */
+.dim{position:fixed;inset:0;z-index:60;background:#000;color:#5f5f5f;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;border:0;width:100%;font:600 1rem var(--font)}
+.dim strong{font:700 2rem var(--font);font-variant-numeric:tabular-nums;color:#707070}
+
+/* Diálogo y aviso */
+dialog{border:0;border-radius:var(--r-lg);padding:0;width:min(92vw,420px);box-shadow:0 20px 60px rgba(0,0,0,.25);color:var(--ink)}
+dialog::backdrop{background:rgba(16,17,20,.45)}
+.dlg{padding:22px;display:grid;gap:14px}
+.dlg h2{font-size:1.125rem}
+.dlg p{margin:0;color:var(--ink-2);font-size:.9375rem}
+.dlg-actions{display:flex;justify-content:flex-end;gap:10px;flex-wrap:wrap}
+.toast{position:fixed;left:50%;bottom:calc(var(--nav-h) + env(safe-area-inset-bottom) + 68px);transform:translate(-50%,12px);z-index:70;background:var(--ink);color:#fff;padding:12px 16px;border-radius:12px;font-size:.875rem;font-weight:600;max-width:min(92vw,440px);opacity:0;pointer-events:none;transition:opacity .2s,transform .2s;box-shadow:0 8px 24px rgba(0,0,0,.2)}
+.toast.show{opacity:1;transform:translate(-50%,0)}
+@media (prefers-reduced-motion:reduce){*,*::before,*::after{transition:none!important;animation:none!important}}
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="wrap">
+    <div class="brand">
+      <svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="9" fill="#16171B"/><circle cx="16" cy="16" r="6.5" fill="#D92D20"/></svg>
+      <span>Acta</span>
+    </div>
+    <div class="top-right">
+      <button class="btn btn-sm" id="btn-install" hidden>Instalar</button>
+      <span class="sync" id="sync" role="status"><i></i><span>—</span></span>
+    </div>
+  </div>
+</header>
+
+<main class="wrap" id="app">
+  <h1 class="sr">Acta, grabadora de reuniones</h1>
+
+  <!-- GRABAR -->
+  <section class="view" id="v-rec" aria-label="Grabar">
+    <div id="recovery"></div>
+
+    <div id="idle">
+      <div class="card start sec">
+        <label class="field">
+          <span>Cliente o tema (opcional)</span>
+          <input class="input" id="client" autocomplete="off" maxlength="60" placeholder="Ej.: Valtti, relevamiento CRM">
+        </label>
+        <button class="rec-big" id="btn-start" type="button" aria-label="Empezar a grabar">
+          <span><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 15a3.5 3.5 0 0 0 3.5-3.5v-6a3.5 3.5 0 1 0-7 0v6A3.5 3.5 0 0 0 12 15Zm6-3.5a.9.9 0 1 0-1.8 0 4.2 4.2 0 0 1-8.4 0 .9.9 0 1 0-1.8 0 6 6 0 0 0 5.1 5.93V20H8.6a.9.9 0 1 0 0 1.8h6.8a.9.9 0 1 0 0-1.8h-2.5v-2.57A6 6 0 0 0 18 11.5Z"/></svg>Grabar</span>
+        </button>
+        <p class="hint">Cada 2 segundos el audio queda guardado en el teléfono. Si algo se corta, se recupera.</p>
+        <div class="health"><ul id="health"></ul></div>
+      </div>
+
+      <div class="sec">
+        <div class="sec-head"><h2>Recientes</h2><button class="btn btn-ghost btn-sm" data-go="list">Ver todas</button></div>
+        <ul class="list" id="recent"></ul>
+      </div>
+    </div>
+
+    <div id="live" class="live" hidden>
+      <div class="card live-head">
+        <div class="live-row">
+          <span class="pill rec" id="rec-state"><i></i><span>Grabando</span></span>
+          <div class="meter" id="meter" aria-hidden="true"></div>
+        </div>
+        <div class="live-row">
+          <div class="timer" id="timer" aria-live="off">00:00</div>
+          <button class="icon-btn" id="btn-dim" aria-label="Atenuar pantalla para ahorrar batería" title="Atenuar pantalla">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5Z"/></svg>
+          </button>
+        </div>
+        <div class="live-sub" id="live-sub"></div>
+      </div>
+      <div class="alerts" id="alerts" aria-live="assertive"></div>
+      <div class="card panel">
+        <div class="transcript" id="live-t" aria-live="polite" aria-label="Transcripción en vivo"></div>
+        <p class="legend" id="legend"></p>
+        <button class="btn btn-sm to-end" id="to-end" hidden>Ir al final</button>
+      </div>
+      <div class="controls">
+        <button class="btn" id="btn-pause"></button>
+        <button class="btn" id="btn-mark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M5 21V4h11l-1.5 4L16 12H5"/></svg>Marcar</button>
+        <button class="btn btn-danger" id="btn-stop"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2.5"/></svg>Terminar</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- HISTORIAL -->
+  <section class="view" id="v-list" hidden aria-label="Historial">
+    <label class="field">
+      <span>Buscar en títulos y transcripciones</span>
+      <input class="input" id="search" type="search" autocomplete="off" placeholder="Ej.: cuotas, Valtti, CRM">
+    </label>
+    <div class="filters" id="filters" role="group" aria-label="Filtrar por tema"></div>
+    <div id="list" class="sec"></div>
+  </section>
+
+  <!-- DETALLE -->
+  <section class="view" id="v-detail" hidden aria-label="Detalle de grabación"></section>
+
+  <!-- AJUSTES -->
+  <section class="view" id="v-settings" hidden aria-label="Ajustes">
+    <form class="card form sec" id="settings-form" novalidate>
+      <h2>Transcripción</h2>
+      <label class="field"><span>Servidor de transcripción</span>
+        <input class="input" name="endpoint" autocomplete="off" inputmode="url">
+        <p class="help">Dejalo en <b>/api/transcribe</b> si la app está publicada en Vercel con la función incluida.</p>
+      </label>
+      <label class="field"><span>Clave de la app (APP_TOKEN)</span>
+        <input class="input" name="token" type="password" autocomplete="new-password">
+        <p class="help">La misma que cargaste en Vercel. Evita que otros usen tu servidor.</p>
+      </label>
+      <div class="row2">
+        <label class="field"><span>Idioma</span>
+          <select class="input" name="lang">
+            <option value="es-AR">Español (Argentina)</option><option value="es-ES">Español (España)</option>
+            <option value="es-MX">Español (México)</option><option value="en-US">Inglés (EE. UU.)</option>
+            <option value="pt-BR">Portugués (Brasil)</option>
+          </select>
+        </label>
+        <label class="field"><span>Bloques de</span>
+          <select class="input" name="segSec">
+            <option value="60">1 minuto</option><option value="120">2 minutos</option>
+            <option value="180">3 minutos</option><option value="300">5 minutos</option>
+          </select>
+        </label>
+      </div>
+      <label class="field"><span>Calidad de audio</span>
+        <select class="input" name="bitrate">
+          <option value="24000">Ahorro (≈ 43 MB por 4 h)</option>
+          <option value="32000">Recomendada (≈ 58 MB por 4 h)</option>
+          <option value="48000">Alta (≈ 86 MB por 4 h)</option>
+        </select>
+      </label>
+      <div>
+        <label class="switch"><span><b>Transcripción en vivo</b><br><span class="small muted">Borrador instantáneo mientras hablan. La versión final llega por bloques.</span></span><input type="checkbox" name="live"></label>
+        <p class="help" id="live-help"></p>
+      </div>
+      <label class="field"><span>Temas propios para etiquetar</span>
+        <textarea class="input" name="customTags" placeholder="Valtti: valtti, balti, motos; Ciclos: ciclos, paneles"></textarea>
+        <p class="help">Formato: <b>Tema: palabra, palabra;</b> uno por línea o separados por punto y coma.</p>
+      </label>
+      <div class="more">
+        <button class="btn btn-primary" type="submit">Guardar ajustes</button>
+        <button class="btn" type="button" id="btn-test">Probar conexión</button>
+      </div>
+      <p class="help" id="test-out" role="status"></p>
+    </form>
+
+    <div class="card form sec">
+      <h2>Almacenamiento</h2>
+      <dl class="kv" id="storage-kv"></dl>
+      <div class="more">
+        <button class="btn" type="button" id="btn-persist">Proteger almacenamiento</button>
+        <button class="btn" type="button" id="btn-optimize">Liberar copias de respaldo</button>
+        <button class="btn" type="button" data-go="trash">Papelera</button>
+      </div>
+      <p class="help">“Liberar copias” borra solo la segunda copia de audio de grabaciones ya transcriptas hace más de 7 días. El audio principal y el texto no se tocan.</p>
+    </div>
+  </section>
+
+  <!-- PAPELERA -->
+  <section class="view" id="v-trash" hidden aria-label="Papelera">
+    <div class="detail-head"><button class="icon-btn" data-back aria-label="Volver"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg></button><h2>Papelera</h2></div>
+    <p class="muted small">Nada se borra solo. Desde acá podés restaurar o eliminar para siempre.</p>
+    <ul class="list sec" id="trash-list"></ul>
+  </section>
+</main>
+
+<nav class="tabs" aria-label="Secciones">
+  <div class="wrap">
+    <button class="tab" data-go="rec" aria-current="page"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="3.5" fill="currentColor"/></svg>Grabar</button>
+    <button class="tab" data-go="list"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01"/></svg>Historial</button>
+    <button class="tab" data-go="settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg>Ajustes</button>
+  </div>
+</nav>
+
+<button class="rec-float" id="rec-float" hidden><i></i><span>Grabando</span></button>
+<button class="dim" id="dim" hidden aria-label="Volver a la pantalla normal"><strong id="dim-timer">00:00</strong><span id="dim-state">Grabando · tocá para volver</span></button>
+<dialog id="dlg"><form method="dialog" class="dlg" id="dlg-form"></form></dialog>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script type="module">
+import * as C from './core.js';
+
+/* =========================================================
+   Utilidades
+   ========================================================= */
+const $ = (s, r = document) => r.querySelector(s);
+const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const uid = () => (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2));
+const vibrate = (p) => { try { navigator.vibrate?.(p); } catch { /* sin vibración */ } };
+const TIMESLICE = 2000;
+const ICON = {
+  pause: '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="5" width="4" height="14" rx="1.5"/><rect x="14" y="5" width="4" height="14" rx="1.5"/></svg>',
+  play: '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5.5v13a1 1 0 0 0 1.5.86l10-6.5a1 1 0 0 0 0-1.72l-10-6.5A1 1 0 0 0 8 5.5Z"/></svg>',
+  back: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>',
+  copy: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2.5"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg>',
+  text: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8l-5-5Z"/><path d="M14 3v5h5M9 13h6M9 17h6"/></svg>',
+  audio: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M12 4v11m0 0-4-4m4 4 4-4M5 20h14"/></svg>',
+  share: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M12 15V4m0 0L8 8m4-4 4 4M5 13v5a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-5"/></svg>',
+};
+
+/* =========================================================
+   Ajustes (localStorage protegido)
+   ========================================================= */
+const store = {
+  get(k) { try { return localStorage.getItem('acta.' + k); } catch { return null; } },
+  set(k, v) { try { localStorage.setItem('acta.' + k, v); } catch { /* modo privado */ } },
+  del(k) { try { localStorage.removeItem('acta.' + k); } catch { /* modo privado */ } },
+};
+let settings = (() => { try { return C.normalizeSettings(JSON.parse(store.get('settings') || '{}')); } catch { return C.normalizeSettings({}); } })();
+function saveSettings(s) { settings = C.normalizeSettings(s); store.set('settings', JSON.stringify(settings)); }
+const tagRules = () => [...C.TAG_RULES, ...C.parseCustomTags(settings.customTags)];
+
+/* =========================================================
+   Base de datos (IndexedDB)
+   ========================================================= */
+let db;
+function openDB() {
+  return new Promise((res, rej) => {
+    const r = indexedDB.open('acta', 1);
+    r.onupgradeneeded = () => {
+      const d = r.result;
+      d.createObjectStore('sessions', { keyPath: 'id' });
+      const ch = d.createObjectStore('chunks', { autoIncrement: true });
+      ch.createIndex('track', ['sid', 'track', 'part']);
+      ch.createIndex('sid', 'sid');
+      const sg = d.createObjectStore('segments', { keyPath: ['sid', 'idx'] });
+      sg.createIndex('sid', 'sid');
+      sg.createIndex('status', 'status');
+      d.createObjectStore('lines', { autoIncrement: true }).createIndex('sid', 'sid');
+      d.createObjectStore('marks', { autoIncrement: true }).createIndex('sid', 'sid');
+    };
+    r.onsuccess = () => { const d = r.result; d.onversionchange = () => d.close(); res(d); };
+    r.onerror = () => rej(r.error);
+    r.onblocked = () => rej(new Error('La base está bloqueada por otra pestaña.'));
+  });
+}
+const reqP = (r) => new Promise((res, rej) => { r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
+const txDone = (t) => new Promise((res, rej) => { t.oncomplete = () => res(); t.onerror = () => rej(t.error); t.onabort = () => rej(t.error || new Error('Transacción abortada')); });
+async function dbPut(name, value, key, strict = false) {
+  const t = db.transaction(name, 'readwrite', strict ? { durability: 'strict' } : undefined);
+  const r = key === undefined ? t.objectStore(name).put(value) : t.objectStore(name).put(value, key);
+  await txDone(t);
+  return r.result;
+}
+const dbGet = (name, key) => reqP(db.transaction(name).objectStore(name).get(key));
+function dbAll(name, index, query) {
+  const os = db.transaction(name).objectStore(name);
+  return reqP(index ? os.index(index).getAll(query) : os.getAll(query));
+}
+async function dbAllWithKeys(name, index, query) {
+  const os = db.transaction(name).objectStore(name);
+  const src = index ? os.index(index) : os;
+  const [vals, keys] = await Promise.all([reqP(src.getAll(query)), reqP(index ? src.getAllKeys(query) : src.getAllKeys(query))]);
+  return vals.map((v, i) => ({ ...v, key: keys[i] }));
+}
+function dbDeleteWhere(names, indexName, query) {
+  return new Promise((res, rej) => {
+    const t = db.transaction(names, 'readwrite');
+    for (const n of names) {
+      const r = t.objectStore(n).index(indexName).openKeyCursor(query);
+      r.onsuccess = () => { const c = r.result; if (c) { t.objectStore(n).delete(c.primaryKey); c.continue(); } };
+    }
+    t.oncomplete = () => res(); t.onerror = () => rej(t.error);
+  });
+}
+function lastChunk(sid, track, part) {
+  return new Promise((res, rej) => {
+    const r = db.transaction('chunks').objectStore('chunks').index('track').openCursor(IDBKeyRange.only([sid, track, part]), 'prev');
+    r.onsuccess = () => res(r.result ? r.result.value : null);
+    r.onerror = () => rej(r.error);
+  });
+}
+async function assemble(sid, track, part, mime) {
+  const rows = await dbAll('chunks', 'track', IDBKeyRange.only([sid, track, part]));
+  return new Blob(rows.map((r) => r.buf), { type: (mime || 'audio/webm').split(';')[0] });
+}
+
+/* =========================================================
+   Cola de escritura: el audio nunca espera al disco
+   ========================================================= */
+const WQ = { items: [], running: false };
+function enqueue(rec) { WQ.items.push(rec); runWQ(); }
+async function runWQ() {
+  if (WQ.running) return;
+  WQ.running = true;
+  try {
+    while (WQ.items.length) {
+      const rec = WQ.items[0];
+      try {
+        if (!rec.buf) { rec.buf = await rec.blob.arrayBuffer(); delete rec.blob; }
+        await dbPut('chunks', rec, undefined, true);
+        WQ.items.shift();
+        R.bytes += rec.buf.byteLength;
+        R.lastSavedAt = Date.now();
+        clearAlert('storage');
+      } catch (err) {
+        showAlert('storage', `No se pudo guardar en el teléfono (${esc(err.name || 'error')}). El audio sigue en memoria y se reintenta. Liberá espacio si podés.`, 'bad');
+        await sleep(3000);
+      }
+    }
+  } finally { WQ.running = false; }
+}
+async function waitFlushed(pred, timeout = 10000) {
+  const until = Date.now() + timeout;
+  while (Date.now() < until) {
+    if (!WQ.items.some(pred)) return true;
+    runWQ();
+    await sleep(80);
+  }
+  return !WQ.items.some(pred);
+}
+
+/* =========================================================
+   Motor de grabación
+   ========================================================= */
+const R = {
+  state: 'idle', sid: null, session: null, stream: null, mime: '',
+  master: null, seg: null, segRec: null, segIdx: -1, segStartMs: 0, masterPart: -1,
+  accMs: 0, resumeAt: 0, lastChunkAt: 0, lastSavedAt: 0, bytes: 0,
+  live: [], marks: [], doneSegs: [],
+  audioCtx: null, analyser: null, srcNode: null, abuf: null, level: 0, segMax: 0,
+  flatSince: 0, lastFlatAction: 0, reconnecting: false, userStopping: false, timers: [], wakeOk: false,
+};
+const activeMs = () => R.accMs + (R.state === 'recording' ? performance.now() - R.resumeAt : 0);
+const isActive = () => ['recording', 'paused', 'reconnecting'].includes(R.state);
+
+function getMic() {
+  return navigator.mediaDevices.getUserMedia({
+    audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 },
+  });
+}
+function micErrorText(err) {
+  if (err?.name === 'NotAllowedError') return 'No hay permiso para usar el micrófono. Habilitalo en los permisos del sitio (candado de la barra de direcciones).';
+  if (err?.name === 'NotFoundError') return 'No se encontró ningún micrófono.';
+  if (err?.name === 'NotReadableError') return 'Otra app está usando el micrófono. Cerrala y probá de nuevo.';
+  return 'No se pudo acceder al micrófono: ' + (err?.message || err);
+}
+
+let releaseLock = null;
+function acquireRecLock() {
+  if (!navigator.locks) return Promise.resolve(true);
+  return new Promise((resolve) => {
+    navigator.locks.request('acta-rec', { ifAvailable: true }, (lock) => {
+      if (!lock) { resolve(false); return undefined; }
+      resolve(true);
+      return new Promise((r) => { releaseLock = r; });
+    });
+  });
+}
+
+function ensureAudioCtx() {
+  if (!R.audioCtx) {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return;
+    R.audioCtx = new AC();
+    R.analyser = R.audioCtx.createAnalyser();
+    R.analyser.fftSize = 1024;
+    R.abuf = new Uint8Array(R.analyser.fftSize);
+  }
+  if (R.audioCtx.state === 'suspended') R.audioCtx.resume().catch(() => {});
+}
+function attachStream(stream) {
+  for (const t of stream.getAudioTracks()) {
+    t.onended = () => recover('el sistema cortó el micrófono', true);
+    t.onmute = () => {
+      if (!isActive()) return;
+      showAlert('mute', 'El sistema silenció el micrófono (¿llamada o asistente de voz?). La grabación sigue y se retoma sola.', 'warn');
+      addMark('Micrófono silenciado por el sistema', 'gap');
+    };
+    t.onunmute = () => { if (!isActive()) return; clearAlert('mute'); addMark('Micrófono recuperado', 'gap'); };
+  }
+  if (R.audioCtx) {
+    try { R.srcNode?.disconnect(); } catch { /* ya desconectado */ }
+    R.srcNode = R.audioCtx.createMediaStreamSource(stream);
+    R.srcNode.connect(R.analyser);
+  }
+}
+function releaseStream() {
+  R.stream?.getTracks().forEach((t) => { t.onended = t.onmute = t.onunmute = null; t.stop(); });
+  R.stream = null;
+}
+
+function makeRecorder(track, part) {
+  const opts = { audioBitsPerSecond: settings.bitrate };
+  if (R.mime) opts.mimeType = R.mime;
+  const mr = new MediaRecorder(R.stream, opts);
+  const sid = R.sid;
+  mr.ondataavailable = (e) => {
+    if (!e.data || !e.data.size) return;
+    R.lastChunkAt = performance.now();
+    enqueue({ sid, track, part, ms: Math.round(activeMs()), at: Date.now(), blob: e.data });
+  };
+  mr.onerror = (e) => { console.warn('MediaRecorder', e.error); if (R.state === 'recording') recover('error del grabador', false); };
+  mr.start(TIMESLICE);
+  return mr;
+}
+function stopRecorder(mr) {
+  return new Promise((res) => {
+    if (!mr || mr.state === 'inactive') { res(); return; }
+    const t = setTimeout(res, 4000);
+    mr.addEventListener('stop', () => { clearTimeout(t); setTimeout(res, 0); }, { once: true });
+    try { mr.stop(); } catch { clearTimeout(t); res(); }
+  });
+}
+
+function startMaster() {
+  R.masterPart += 1;
+  R.session.parts.push({ part: R.masterPart, startMs: Math.round(activeMs()), at: Date.now() });
+  R.master = makeRecorder('m', R.masterPart);
+  saveSession();
+}
+function startSegment() {
+  R.segIdx += 1;
+  R.segStartMs = activeMs();
+  R.segMax = 0;
+  R.segRec = { sid: R.sid, idx: R.segIdx, startMs: Math.round(R.segStartMs), endMs: null, status: 'recording', attempts: 0, maxLevel: 0, mime: R.mime };
+  dbPut('segments', R.segRec).catch(() => {});
+  R.seg = makeRecorder('s', R.segIdx);
+}
+async function closeSegment(mr, seg) {
+  if (!seg || seg.status !== 'recording') return;
+  seg.status = 'closing';
+  await stopRecorder(mr);
+  await waitFlushed((r) => r.sid === seg.sid && r.track === 's' && r.part === seg.idx);
+  seg.status = 'pending';
+  try { await dbPut('segments', seg, undefined, true); } catch (e) { console.warn(e); }
+  pumpQueue();
+}
+function rotateSegment() {
+  const oldMr = R.seg, oldSeg = R.segRec;
+  oldSeg.maxLevel = R.segMax;
+  startSegment();
+  oldSeg.endMs = R.segRec.startMs;
+  // Superposición de 0,5 s: el bloque nuevo ya graba antes de cerrar el viejo (sin huecos).
+  setTimeout(() => closeSegment(oldMr, oldSeg), 500);
+}
+
+let saveTimer = 0;
+function saveSession(strict = false) {
+  if (!R.session) return Promise.resolve();
+  R.session.durationMs = Math.round(activeMs());
+  R.session.status = R.state === 'idle' ? R.session.status : R.state;
+  clearTimeout(saveTimer);
+  return dbPut('sessions', R.session, undefined, strict).catch((e) => console.warn('saveSession', e));
+}
+
+async function startRecording(resume) {
+  if (R.state !== 'idle') return;
+  if (!window.MediaRecorder || !navigator.mediaDevices?.getUserMedia) {
+    await dialog({ title: 'No se puede grabar acá', body: 'Este navegador no permite grabar audio. Usá Chrome actualizado en Android, o Safari 16+ en iPhone.', ok: 'Entendido', cancel: null });
+    return;
+  }
+  ensureAudioCtx(); // dentro del gesto del usuario
+  const btn = $('#btn-start'); btn.disabled = true;
+  if (!(await acquireRecLock())) {
+    btn.disabled = false;
+    await dialog({ title: 'Ya hay una grabación abierta', body: 'Hay otra pestaña o ventana de Acta grabando. Usá esa para no duplicar.', ok: 'Entendido', cancel: null });
+    return;
+  }
+  try { R.stream = await getMic(); }
+  catch (err) {
+    btn.disabled = false; releaseLock?.(); releaseLock = null;
+    await dialog({ title: 'Micrófono no disponible', body: micErrorText(err), ok: 'Entendido', cancel: null });
+    return;
+  }
+  navigator.storage?.persist?.().then(renderHealth).catch(() => {});
+  R.mime = C.pickMimeType((t) => MediaRecorder.isTypeSupported(t));
+  const now = Date.now();
+  if (resume) {
+    R.session = resume;
+    R.accMs = resume.durationMs || 0;
+    R.live = (await dbAllWithKeys('lines', 'sid', resume.id)).sort((a, b) => a.ms - b.ms);
+    R.marks = (await dbAllWithKeys('marks', 'sid', resume.id)).sort((a, b) => a.ms - b.ms);
+    const segs = await dbAll('segments', 'sid', resume.id);
+    R.segIdx = segs.reduce((m, s) => Math.max(m, s.idx), -1);
+    R.doneSegs = segs.filter((s) => s.status === 'done');
+    R.masterPart = (resume.parts || []).reduce((m, p) => Math.max(m, p.part), -1);
+    R.session.parts = resume.parts || [];
+    R.mime = resume.mime || R.mime;
+  } else {
+    const client = $('#client').value.trim();
+    R.session = {
+      id: uid(), createdAt: now, client, title: C.defaultTitle(now, client), titleManual: false,
+      tags: [], userTags: [], hiddenTags: [], status: 'recording', durationMs: 0, mime: R.mime,
+      parts: [], endedAt: null, deleted: false, searchText: '', liveText: '',
+    };
+    R.accMs = 0; R.live = []; R.marks = []; R.doneSegs = []; R.segIdx = -1; R.masterPart = -1;
+  }
+  R.sid = R.session.id; R.bytes = 0; R.userStopping = false;
+  R.state = 'recording'; R.resumeAt = performance.now(); R.lastChunkAt = performance.now(); R.lastSavedAt = Date.now();
+  R.session.endedAt = null;
+  await saveSession(true);
+  attachStream(R.stream);
+  startMaster(); startSegment();
+  if (resume) addMark('Grabación continuada', 'gap');
+  btn.disabled = false;
+  $('#client').value = '';
+  $('#recovery').innerHTML = '';
+  startTimers(); requestWake(); startLive();
+  showLive(); renderLivePanel(); vibrate(60);
+}
+
+function pauseRecording() {
+  if (R.state !== 'recording') return;
+  R.accMs = activeMs(); R.state = 'paused';
+  try { R.master?.pause(); } catch { /* ya pausado */ }
+  try { R.seg?.pause(); } catch { /* ya pausado */ }
+  stopLive(); saveSession(true); updateLiveUI(); vibrate(40);
+}
+function resumeRecording() {
+  if (R.state !== 'paused') return;
+  R.state = 'recording'; R.resumeAt = performance.now(); R.lastChunkAt = performance.now();
+  try { R.master?.resume(); } catch { /* ya activo */ }
+  try { R.seg?.resume(); } catch { /* ya activo */ }
+  startLive(); saveSession(true); updateLiveUI(); vibrate(40);
+}
+
+async function stopRecording() {
+  if (!isActive()) return;
+  R.userStopping = true;
+  R.accMs = activeMs(); R.state = 'stopping';
+  stopLive(); stopTimers();
+  const seg = R.segRec;
+  if (seg && seg.status === 'recording') { seg.endMs = Math.round(R.accMs); seg.maxLevel = R.segMax; }
+  const segClose = closeSegment(R.seg, seg);
+  await stopRecorder(R.master);
+  await segClose;
+  const flushed = await waitFlushed((r) => r.sid === R.sid, 10000);
+  const s = R.session;
+  s.status = 'stopped'; s.endedAt = Date.now(); s.durationMs = Math.round(R.accMs);
+  s.liveText = R.live.map((l) => l.text).join(' ');
+  retag(s, s.liveText);
+  try { await dbPut('sessions', s, undefined, true); } catch (e) { console.warn(e); }
+  if (!flushed) await emergencyExport(s);
+  releaseStream(); releaseWake();
+  releaseLock?.(); releaseLock = null;
+  const sid = R.sid;
+  Object.assign(R, { state: 'idle', sid: null, session: null, master: null, seg: null, segRec: null, live: [], marks: [], doneSegs: [], reconnecting: false });
+  showIdle(); renderRecent(); renderHealth(); pumpQueue(); vibrate([60, 60, 60]);
+  openDetail(sid);
+  toast('Grabación guardada');
+}
+
+/** Recupera grabación ante corte de micrófono o grabador trabado. Nunca abandona hasta que el usuario termine. */
+async function recover(reason, reacquire) {
+  if (!['recording', 'paused'].includes(R.state) || R.reconnecting) return;
+  R.reconnecting = true;
+  const wasPaused = R.state === 'paused';
+  R.accMs = activeMs(); R.state = 'reconnecting';
+  stopLive(); updateLiveUI();
+  showAlert('mic', `Se cortó la captura (${esc(reason)}). Reconectando… Todo lo grabado hasta ahora está a salvo.`, 'warn');
+  vibrate([200, 100, 200]);
+  const lostAt = Date.now();
+  const seg = R.segRec;
+  if (seg && seg.status === 'recording') { seg.endMs = Math.round(R.accMs); seg.maxLevel = R.segMax; }
+  const oldM = R.master, oldS = R.seg;
+  R.master = R.seg = null;
+  stopRecorder(oldM);
+  closeSegment(oldS, seg);
+  const live = R.stream?.getAudioTracks().every((t) => t.readyState === 'live');
+  if (reacquire || !live) {
+    releaseStream();
+    let n = 0;
+    while (!R.userStopping) {
+      try { R.stream = await getMic(); break; } catch { n += 1; await sleep(Math.min(2000 * n, 10000)); }
+    }
+  }
+  if (R.userStopping) { R.reconnecting = false; if (R.state === 'idle') releaseStream(); return; }
+  attachStream(R.stream);
+  R.state = 'recording'; R.resumeAt = performance.now(); R.lastChunkAt = performance.now();
+  startMaster(); startSegment();
+  addMark(`Captura retomada (corte de ${Math.max(1, Math.round((Date.now() - lostAt) / 1000))} s)`, 'gap');
+  R.reconnecting = false;
+  clearAlert('mic');
+  if (wasPaused) pauseRecording(); else startLive();
+  updateLiveUI();
+  toast('Captura retomada. La grabación sigue.');
+}
+
+async function emergencyExport(s) {
+  const pending = WQ.items.filter((r) => r.sid === s.id && r.track === 'm');
+  if (!pending.length) return;
+  const last = s.parts[s.parts.length - 1];
+  let saved = [];
+  try { saved = await dbAll('chunks', 'track', IDBKeyRange.only([s.id, 'm', last.part])); } catch { /* disco con problemas */ }
+  const parts = [...saved.map((r) => r.buf), ...pending.map((r) => r.buf || r.blob)];
+  downloadBlob(new Blob(parts, { type: (s.mime || 'audio/webm').split(';')[0] }), `acta-respaldo-${C.fileStamp(s.createdAt)}.${C.extForMime(s.mime)}`);
+  await dialog({ title: 'Respaldo de emergencia', body: 'El teléfono no pudo guardar los últimos segundos. Te descargamos el audio completo de esta parte como respaldo. Guardalo.', ok: 'Entendido', cancel: null });
+}
+
+/* ---------- Marcas ---------- */
+async function addMark(text, type = 'user') {
+  if (!R.session) return;
+  const m = { sid: R.sid, ms: Math.round(activeMs()), text, type, at: Date.now() };
+  try { m.key = await dbPut('marks', { sid: m.sid, ms: m.ms, text, type, at: m.at }); } catch { /* se ve igual en pantalla */ }
+  R.marks.push(m);
+  appendLine({ kind: 'mark', ms: m.ms, text, type, key: m.key });
+}
+
+/* ---------- Temporizadores y vigilancia ---------- */
+function startTimers() {
+  stopTimers();
+  R.timers.push(setInterval(tick, 250));
+  R.timers.push(setInterval(() => { if (isActive()) saveSession(); }, 5000));
+  R.timers.push(setInterval(watchdog, 3000));
+}
+function stopTimers() { R.timers.forEach(clearInterval); R.timers = []; }
+function tick() {
+  if (R.analyser && R.abuf) {
+    R.analyser.getByteTimeDomainData(R.abuf);
+    const { rms, flat } = C.analyzeLevel(R.abuf);
+    R.level = rms;
+    if (R.state === 'recording') {
+      R.segMax = Math.max(R.segMax, rms);
+      if (flat && R.audioCtx?.state === 'running') { if (!R.flatSince) R.flatSince = Date.now(); } else R.flatSince = 0;
+    }
+  }
+  if (R.state === 'recording' && R.segRec && activeMs() - R.segStartMs >= settings.segSec * 1000) rotateSegment();
+  updateLiveUI();
+}
+function watchdog() {
+  if (R.state !== 'recording') return;
+  if (C.isStalled(R.lastChunkAt, performance.now(), TIMESLICE)) { recover('el grabador dejó de responder', false); return; }
+  if (R.audioCtx?.state === 'suspended') R.audioCtx.resume().catch(() => {});
+  if (R.flatSince && Date.now() - R.flatSince > 8000) {
+    R.flatSince = 0;
+    if (L.wanted) {
+      // El reconocimiento de voz le quitó el micrófono al grabador: se prioriza la grabación.
+      store.set('liveConflict', '1');
+      stopLive();
+      showAlert('live', 'Tu teléfono no permite grabar y transcribir en vivo a la vez. Se apagó el borrador en vivo para proteger la grabación. El texto llega por bloques cada pocos minutos.', 'warn');
+      addMark('Transcripción en vivo desactivada (conflicto de micrófono)', 'gap');
+    } else if (Date.now() - R.lastFlatAction > 120000) {
+      R.lastFlatAction = Date.now();
+      showAlert('flat', 'El micrófono no recibe sonido. Intentando reconectar…', 'warn');
+      recover('micrófono sin señal', true);
+    }
+  }
+}
+
+/* ---------- Pantalla encendida ---------- */
+let wake = null;
+async function requestWake() {
+  if (!('wakeLock' in navigator) || document.visibilityState !== 'visible') { R.wakeOk = false; return; }
+  try {
+    wake = await navigator.wakeLock.request('screen');
+    R.wakeOk = true;
+    wake.addEventListener('release', () => { R.wakeOk = false; });
+  } catch { R.wakeOk = false; }
+}
+function releaseWake() { try { wake?.release(); } catch { /* ya liberado */ } wake = null; R.wakeOk = false; }
+
+/* =========================================================
+   Transcripción en vivo (Web Speech, borrador)
+   ========================================================= */
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+const L = { rec: null, wanted: false, run: 0, fails: 0, utterStart: null, interim: '' };
+const liveAvailable = () => !!SR && settings.live && store.get('liveConflict') !== '1';
+function startLive() {
+  if (!liveAvailable() || R.state !== 'recording') return;
+  L.wanted = true; L.fails = 0;
+  spawnLive();
+}
+function spawnLive() {
+  if (!L.wanted || R.state !== 'recording' || L.rec) return;
+  let rec;
+  try { rec = new SR(); } catch { L.wanted = false; return; }
+  rec.lang = settings.lang; rec.continuous = true; rec.interimResults = true; rec.maxAlternatives = 1;
+  const run = ++L.run;
+  L.rec = rec;
+  rec.onresult = (e) => {
+    let interim = '';
+    for (let i = e.resultIndex; i < e.results.length; i++) {
+      const r = e.results[i];
+      if (L.utterStart === null) L.utterStart = Math.max(0, Math.round(activeMs()) - 1200);
+      if (r.isFinal) { commitLive(r[0].transcript, run, L.utterStart); L.utterStart = null; }
+      else interim += r[0].transcript;
+    }
+    L.fails = 0; clearAlert('liveNet');
+    setInterim(interim.trim());
+  };
+  rec.onerror = (e) => {
+    if (['not-allowed', 'service-not-allowed', 'audio-capture', 'language-not-supported'].includes(e.error)) {
+      L.wanted = false;
+      if (e.error === 'audio-capture') store.set('liveConflict', '1');
+      showAlert('live', 'La transcripción en vivo no está disponible en este dispositivo. La grabación sigue y el texto llega por bloques.', 'warn');
+    } else if (e.error !== 'no-speech' && e.error !== 'aborted') {
+      L.fails += 1;
+      if (L.fails >= 6) showAlert('liveNet', 'El borrador en vivo necesita internet. La grabación sigue y se transcribe cuando vuelva la conexión.', 'warn');
+    }
+  };
+  rec.onend = () => {
+    L.rec = null; setInterim('');
+    if (L.wanted && R.state === 'recording') setTimeout(spawnLive, L.fails ? Math.min(500 * 2 ** L.fails, 15000) : 120);
+  };
+  try { rec.start(); } catch { L.rec = null; L.fails += 1; setTimeout(spawnLive, 1500); }
+}
+function stopLive() {
+  L.wanted = false; L.utterStart = null;
+  if (L.rec) { try { L.rec.abort(); } catch { /* ya cerrado */ } L.rec = null; }
+  setInterim('');
+}
+async function commitLive(text, run, ms) {
+  const r = C.mergeLiveFinal(R.live, text, ms ?? Math.round(activeMs()), run);
+  if (r.op === 'skip') return;
+  if (r.op === 'add') {
+    const line = { ...r.line, sid: R.sid };
+    R.live.push(line);
+    try { line.key = await dbPut('lines', { sid: line.sid, ms: line.ms, text: line.text, run }); } catch { /* queda en memoria */ }
+    appendLine({ kind: 'draft', ms: line.ms, text: line.text });
+  } else {
+    const line = R.live[r.index];
+    line.text = r.line.text;
+    if (line.key !== undefined) dbPut('lines', { sid: line.sid, ms: line.ms, text: line.text, run }, line.key).catch(() => {});
+    const drafts = $$('#live-t .line.draft');
+    const last = drafts[drafts.length - 1];
+    if (last) last.querySelector('p').textContent = line.text;
+  }
+}
+
+/* =========================================================
+   Cola de transcripción final (Whisper vía /api/transcribe)
+   ========================================================= */
+const P = { busy: false, blocked: '' };
+async function pumpQueue() {
+  if (P.busy || !db) return;
+  if (!navigator.onLine || !settings.endpoint || !settings.token || P.blocked) { renderSync(); return; }
+  P.busy = true; renderSync();
+  try {
+    for (;;) {
+      const seg = await nextSegment();
+      if (!seg) break;
+      const r = await transcribeSegment(seg);
+      if (r === 'stop') break;
+    }
+  } catch (e) { console.warn('pumpQueue', e); }
+  finally { P.busy = false; renderSync(); }
+}
+async function nextSegment() {
+  const now = Date.now();
+  const [pend, err, sessions] = await Promise.all([dbAll('segments', 'status', 'pending'), dbAll('segments', 'status', 'error'), dbAll('sessions')]);
+  const byId = new Map(sessions.map((s) => [s.id, s]));
+  const list = [...pend, ...err].filter((s) => (!s.nextTry || s.nextTry <= now) && byId.has(s.sid) && !byId.get(s.sid).deleted);
+  list.sort((a, b) => (b.sid === R.sid) - (a.sid === R.sid) || byId.get(a.sid).createdAt - byId.get(b.sid).createdAt || a.idx - b.idx);
+  return list[0] || null;
+}
+async function transcribeSegment(seg) {
+  const save = async () => { await dbPut('segments', seg); onSegmentChange(seg); };
+  const rows = await dbAll('chunks', 'track', IDBKeyRange.only([seg.sid, 's', seg.idx]));
+  if (!rows.length) { Object.assign(seg, { status: 'done', result: [], note: 'sin audio' }); await save(); return true; }
+  if ((seg.maxLevel || 0) < C.SILENCE_RMS) { Object.assign(seg, { status: 'done', result: [], note: 'silencio' }); await save(); return true; }
+  const type = (seg.mime || 'audio/webm').split(';')[0];
+  const blob = new Blob(rows.map((r) => r.buf), { type });
+  if (blob.size > 4300000) { Object.assign(seg, { status: 'error', error: 'Bloque demasiado grande para el servidor', nextTry: Date.now() + 864e5 }); await save(); return true; }
+  const prev = seg.idx > 0 ? await dbGet('segments', [seg.sid, seg.idx - 1]) : null;
+  const prompt = C.promptTail((prev?.result || []).map((s) => s.text).join(' '));
+  const name = `bloque-${seg.idx}.${C.extForMime(type)}`;
+  const fd = new FormData();
+  fd.append('file', blob, name);
+  fd.append('name', name);
+  fd.append('language', C.whisperLang(settings.lang));
+  if (prompt) fd.append('prompt', prompt);
+  const fail = async (msg, retryMs) => {
+    seg.attempts = (seg.attempts || 0) + 1;
+    Object.assign(seg, { status: 'error', error: msg, nextTry: Date.now() + (retryMs || C.backoffMs(seg.attempts, Math.random())) });
+    await save();
+    return 'stop';
+  };
+  let res;
+  try {
+    const signal = AbortSignal.timeout ? AbortSignal.timeout(90000) : undefined;
+    res = await fetch(settings.endpoint, { method: 'POST', headers: { 'x-app-token': settings.token }, body: fd, signal });
+  } catch { return fail('Sin conexión con el servidor'); }
+  if (res.status === 401) { P.blocked = 'La clave de la app no coincide con la del servidor. Revisala en Ajustes.'; return fail('Clave inválida', 60000); }
+  if (res.status === 404 || res.status === 405) { P.blocked = 'No se encontró el servidor de transcripción. Revisá la dirección en Ajustes.'; return fail('Servidor no encontrado', 60000); }
+  if (!res.ok) {
+    let msg = `Error ${res.status}`;
+    try { msg = (await res.json()).error || msg; } catch { /* sin cuerpo */ }
+    const ra = Number(res.headers.get('retry-after'));
+    return fail(msg, ra > 0 ? ra * 1000 + 500 : 0);
+  }
+  let data;
+  try { data = await res.json(); } catch { return fail('Respuesta inválida del servidor'); }
+  const segments = Array.isArray(data.segments) && data.segments.length ? data.segments : [{ start: 0, end: 0, text: data.text || '' }];
+  Object.assign(seg, { status: 'done', result: C.cleanWhisperSegments(segments), doneAt: Date.now(), error: undefined, nextTry: undefined });
+  await save();
+  return true;
+}
+async function onSegmentChange(seg) {
+  if (seg.status === 'done') {
+    if (seg.sid === R.sid && R.session) {
+      R.doneSegs = R.doneSegs.filter((s) => s.idx !== seg.idx).concat(seg);
+      renderLivePanel();
+    } else {
+      await refreshSessionText(seg.sid);
+    }
+  }
+  if (currentView === 'detail' && D.sid === seg.sid) renderDetail(seg.sid, true);
+  if (currentView === 'list') renderList();
+  renderRecent();
+}
+async function refreshSessionText(sid) {
+  const s = await dbGet('sessions', sid);
+  if (!s || isActive() && R.sid === sid) return;
+  const segs = await dbAll('segments', 'sid', sid);
+  const finalText = segs.filter((x) => x.status === 'done').sort((a, b) => a.idx - b.idx).flatMap((x) => (x.result || []).map((r) => r.text)).join(' ');
+  retag(s, finalText.length > (s.liveText || '').length * 0.5 ? finalText : `${finalText} ${s.liveText || ''}`);
+  await dbPut('sessions', s);
+}
+function retag(s, text) {
+  s.searchText = text;
+  s.tags = C.autoTag(text, tagRules());
+  if (!s.titleManual) s.title = C.autoTitle(s.createdAt, s.client, visibleTags(s));
+}
+const visibleTags = (s) => [...new Set([...(s.tags || []).filter((t) => !(s.hiddenTags || []).includes(t)), ...(s.userTags || [])])];
+
+/* =========================================================
+   Recuperación tras cierre inesperado
+   ========================================================= */
+async function recoverInterrupted() {
+  if (navigator.locks?.query) {
+    const q = await navigator.locks.query();
+    if (q.held?.some((l) => l.name === 'acta-rec')) return []; // otra pestaña está grabando de verdad
+  }
+  const all = await dbAll('sessions');
+  const broken = all.filter((s) => ['recording', 'paused', 'reconnecting', 'stopping'].includes(s.status));
+  for (const s of broken) {
+    let lastMs = 0, lastAt = 0;
+    for (const p of s.parts || []) {
+      const c = await lastChunk(s.id, 'm', p.part);
+      if (c) { lastMs = Math.max(lastMs, c.ms); lastAt = Math.max(lastAt, c.at); }
+    }
+    s.durationMs = Math.max(s.durationMs || 0, lastMs);
+    s.status = 'interrupted';
+    s.endedAt = lastAt || Date.now();
+    const segs = await dbAll('segments', 'sid', s.id);
+    for (const g of segs) {
+      if (g.status === 'recording' || g.status === 'closing') {
+        g.status = 'pending'; g.endMs = g.endMs ?? s.durationMs; g.maxLevel = Math.max(g.maxLevel || 0, C.SILENCE_RMS);
+        await dbPut('segments', g, undefined, true);
+      }
+    }
+    const lines = await dbAll('lines', 'sid', s.id);
+    s.liveText = lines.sort((a, b) => a.ms - b.ms).map((l) => l.text).join(' ');
+    retag(s, s.liveText);
+    await dbPut('sessions', s, undefined, true);
+  }
+  return broken;
+}
+function showRecoveryBanner(list) {
+  if (!list.length) return;
+  const s = list[list.length - 1];
+  $('#recovery').innerHTML = `<div class="banner ok" role="alert"><div>
+    <p><b>Grabación recuperada.</b> «${esc(s.title)}» se cerró de golpe, pero quedó guardada hasta el corte (${C.formatDuration(s.durationMs)}).</p>
+    <div class="actions"><button class="btn btn-sm btn-primary" data-resume="${esc(s.id)}">Seguir grabando</button><button class="btn btn-sm" data-open="${esc(s.id)}">Ver grabación</button></div>
+  </div></div>`;
+}
+
+/* =========================================================
+   Interfaz: navegación
+   ========================================================= */
+let currentView = 'rec';
+const D = { sid: null, partIdx: 0, url: null, items: [] };
+function go(view, state = {}, push = true) {
+  if (view === 'detail' && !state.sid) view = 'list';
+  currentView = view;
+  for (const v of ['rec', 'list', 'detail', 'settings', 'trash']) $('#v-' + v).hidden = v !== view;
+  const tabFor = { rec: 'rec', list: 'list', detail: 'list', settings: 'settings', trash: 'settings' }[view];
+  $$('.tab').forEach((t) => (t.dataset.go === tabFor ? t.setAttribute('aria-current', 'page') : t.removeAttribute('aria-current')));
+  if (push) history.pushState({ view, ...state }, '');
+  $('#rec-float').hidden = !(isActive() && view !== 'rec');
+  if (view !== 'detail') { revokeAudio(); }
+  if (view === 'list') renderList();
+  if (view === 'settings') renderSettings();
+  if (view === 'trash') renderTrash();
+  if (view === 'rec') { renderRecent(); if (isActive()) scrollLiveToEnd(); }
+  window.scrollTo(0, 0);
+}
+window.addEventListener('popstate', (e) => {
+  const st = e.state || { view: 'rec' };
+  if (st.view === 'detail') openDetail(st.sid, false); else go(st.view, st, false);
+});
+document.addEventListener('click', async (e) => {
+  const t = e.target.closest('[data-go],[data-open],[data-resume],[data-back]');
+  if (!t) return;
+  if (t.dataset.go) go(t.dataset.go);
+  else if (t.dataset.open) openDetail(t.dataset.open);
+  else if (t.hasAttribute('data-back')) history.length > 1 ? history.back() : go('list');
+  else if (t.dataset.resume) {
+    const s = await dbGet('sessions', t.dataset.resume);
+    if (s) { go('rec'); startRecording(s); }
+  }
+});
+
+/* ---------- Grabación: vista ---------- */
+function showLive() { $('#idle').hidden = true; $('#live').hidden = false; $('#app').classList.add('is-live'); go('rec'); buildMeter(); }
+function showIdle() { $('#idle').hidden = false; $('#live').hidden = true; $('#app').classList.remove('is-live'); $('#alerts').innerHTML = ''; $('#rec-float').hidden = true; $('#dim').hidden = true; }
+function buildMeter() { $('#meter').innerHTML = '<b></b>'.repeat(14); }
+function updateLiveUI() {
+  if (!R.session) return;
+  const ms = activeMs();
+  const time = C.formatDuration(ms);
+  $('#timer').textContent = time;
+  $('#dim-timer').textContent = time;
+  $('#rec-float span').textContent = `${R.state === 'paused' ? 'En pausa' : 'Grabando'} · ${time}`;
+  const pill = $('#rec-state');
+  const st = { recording: ['rec', 'Grabando'], paused: ['paused', 'En pausa'], reconnecting: ['recon', 'Reconectando'], stopping: ['paused', 'Guardando…'] }[R.state] || ['rec', ''];
+  pill.className = 'pill ' + st[0];
+  pill.lastElementChild.textContent = st[1];
+  $('#dim-state').textContent = `${st[1]} · tocá para volver`;
+  const bars = $$('#meter b');
+  const lvl = R.state === 'recording' ? Math.min(1, R.level * 9) : 0;
+  bars.forEach((b, i) => { const on = i / bars.length < lvl; b.classList.toggle('on', on); b.style.height = on ? `${30 + ((i * 37) % 70)}%` : '20%'; });
+  const pb = $('#btn-pause');
+  const paused = R.state === 'paused';
+  const html = paused ? `${ICON.play}Continuar` : `${ICON.pause}Pausar`;
+  if (pb.dataset.s !== String(paused)) { pb.innerHTML = html; pb.dataset.s = String(paused); }
+  pb.disabled = R.state !== 'recording' && R.state !== 'paused';
+  $('#btn-mark').disabled = R.state !== 'recording';
+  const saved = R.lastSavedAt ? Math.max(0, Math.round((Date.now() - R.lastSavedAt) / 1000)) : 0;
+  const total = R.segIdx + 1, done = R.doneSegs.length;
+  $('#live-sub').innerHTML =
+    `<span>Guardado hace ${saved} s · ${C.formatBytes(R.bytes)}</span>` +
+    `<span>Texto: ${done}/${total} bloques</span>` +
+    (R.wakeOk ? '' : '<span style="color:var(--warn)">Dejá la pantalla encendida</span>');
+}
+function lineHTML(i, asButton = false) {
+  const cls = i.kind === 'mark' ? (i.type === 'gap' ? 'mark gap' : 'mark') : i.kind;
+  const tag = asButton && i.kind !== 'mark' ? 'button' : 'div';
+  const attrs = asButton ? ` data-ms="${i.ms}"${tag === 'button' ? ' type="button"' : ''}` : '';
+  const editable = i.kind === 'mark' && i.type === 'user' && i.key !== undefined ? ` data-mark="${i.key}" role="button" tabindex="0"` : '';
+  return `<${tag} class="line ${cls}"${attrs}${editable}><time>${C.formatDuration(i.ms)}</time><p>${esc(i.text)}</p></${tag}>`;
+}
+const nearBottom = (el) => el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+function renderLivePanel() {
+  const el = $('#live-t');
+  const stick = nearBottom(el);
+  const items = C.buildTranscript({ segments: R.doneSegs, live: R.live, marks: R.marks.map((m) => ({ ...m })) });
+  for (const it of items) if (it.kind === 'mark') it.key = R.marks.find((m) => m.ms === it.ms && m.text === it.text)?.key;
+  el.innerHTML = items.length
+    ? items.map((i) => lineHTML(i)).join('') + '<div class="line interim" id="interim" hidden><time></time><p></p></div>'
+    : '<p class="empty small" id="live-empty">Lo que se diga aparece acá.</p><div class="line interim" id="interim" hidden><time></time><p></p></div>';
+  $('#legend').textContent = liveAvailable()
+    ? 'Gris: borrador en vivo. Negro: versión final corregida (llega por bloques).'
+    : 'El texto llega por bloques, ya corregido, a medida que se transcribe.';
+  if (stick) scrollLiveToEnd();
+}
+function appendLine(i) {
+  const el = $('#live-t');
+  if (!el || $('#live').hidden) return;
+  const stick = nearBottom(el);
+  $('#live-empty')?.remove();
+  const interim = $('#interim');
+  interim.insertAdjacentHTML('beforebegin', lineHTML(i));
+  if (stick) scrollLiveToEnd();
+}
+function setInterim(text) {
+  const n = $('#interim');
+  if (!n) return;
+  n.hidden = !text;
+  n.querySelector('time').textContent = text ? C.formatDuration(activeMs()) : '';
+  n.querySelector('p').textContent = text;
+  const el = $('#live-t');
+  if (text && nearBottom(el)) scrollLiveToEnd();
+}
+function scrollLiveToEnd() { const el = $('#live-t'); el.scrollTop = el.scrollHeight; $('#to-end').hidden = true; }
+$('#live-t').addEventListener('scroll', (e) => { $('#to-end').hidden = nearBottom(e.currentTarget); }, { passive: true });
+$('#to-end').addEventListener('click', scrollLiveToEnd);
+$('#live-t').addEventListener('click', (e) => { const m = e.target.closest('[data-mark]'); if (m) renameMark(Number(m.dataset.mark), m, R.sid); });
+
+async function renameMark(key, node, sid) {
+  const cur = node.querySelector('p').textContent;
+  const r = await dialog({ title: 'Nombre de la marca', input: cur, ok: 'Guardar' });
+  if (r === null) return;
+  const text = r.trim() || 'Marca';
+  const all = await dbAllWithKeys('marks', 'sid', sid);
+  const m = all.find((x) => x.key === key);
+  if (!m) return;
+  const { key: k, ...val } = m;
+  await dbPut('marks', { ...val, text }, k);
+  const mem = R.marks.find((x) => x.key === key);
+  if (mem) mem.text = text;
+  node.querySelector('p').textContent = text;
+}
+
+$('#btn-start').addEventListener('click', () => startRecording());
+$('#btn-pause').addEventListener('click', () => (R.state === 'paused' ? resumeRecording() : pauseRecording()));
+$('#btn-mark').addEventListener('click', () => { addMark('Marca'); vibrate(30); toast(`Marca en ${C.formatDuration(activeMs())}. Tocala para ponerle nombre.`); });
+$('#btn-stop').addEventListener('click', async () => {
+  const ok = await dialog({ title: '¿Terminar la grabación?', body: `Duración: ${C.formatDuration(activeMs())}. Se guarda y empieza a transcribirse lo que falte.`, ok: 'Terminar', cancel: 'Seguir grabando', danger: true });
+  if (ok) stopRecording();
+});
+$('#btn-dim').addEventListener('click', () => { $('#dim').hidden = false; });
+$('#dim').addEventListener('click', () => { $('#dim').hidden = true; });
+$('#rec-float').addEventListener('click', () => go('rec'));
+
+/* ---------- Avisos ---------- */
+function showAlert(id, html, kind = 'warn') {
+  const box = $('#alerts');
+  let n = box.querySelector(`[data-alert="${id}"]`);
+  if (!n) { n = document.createElement('div'); n.dataset.alert = id; box.appendChild(n); }
+  n.className = `banner ${kind === 'bad' ? 'bad' : ''}`;
+  n.innerHTML = `<p>${html}</p>`;
+}
+function clearAlert(id) { $(`#alerts [data-alert="${id}"]`)?.remove(); }
+let toastT = 0;
+function toast(msg) {
+  const t = $('#toast');
+  t.textContent = msg; t.classList.add('show');
+  clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('show'), 2800);
+}
+function dialog({ title, body = '', input = null, ok = 'Aceptar', cancel = 'Cancelar', danger = false }) {
+  const dlg = $('#dlg'), f = $('#dlg-form');
+  f.innerHTML = `<h2>${esc(title)}</h2>${body ? `<p>${esc(body)}</p>` : ''}` +
+    (input !== null ? `<input class="input" id="dlg-input" maxlength="80" value="${esc(input)}">` : '') +
+    `<div class="dlg-actions">${cancel ? `<button class="btn" value="cancel">${esc(cancel)}</button>` : ''}<button class="btn ${danger ? 'btn-danger' : 'btn-primary'}" value="ok">${esc(ok)}</button></div>`;
+  return new Promise((res) => {
+    dlg.onclose = () => {
+      const v = dlg.returnValue === 'ok';
+      res(input !== null ? (v ? $('#dlg-input').value : null) : v);
+    };
+    dlg.returnValue = '';
+    dlg.showModal();
+    $('#dlg-input')?.select();
+  });
+}
+
+/* ---------- Estado de la app ---------- */
+async function renderHealth() {
+  const items = [];
+  let mic = 'prompt';
+  try { mic = (await navigator.permissions.query({ name: 'microphone' })).state; } catch { /* no soportado */ }
+  items.push(mic === 'granted' ? ['ok', 'Micrófono habilitado'] : mic === 'denied' ? ['bad', 'Micrófono bloqueado: habilitalo en los permisos del sitio'] : ['', 'El permiso del micrófono se pide al grabar']);
+  const persisted = await navigator.storage?.persisted?.().catch(() => false);
+  const est = await navigator.storage?.estimate?.().catch(() => null);
+  const free = est ? est.quota - est.usage : Infinity;
+  if (free < 300 * 1024 * 1024) items.push(['bad', `Poco espacio libre para la app (${C.formatBytes(free)})`]);
+  items.push(persisted ? ['ok', 'Almacenamiento protegido: el sistema no lo borra'] : ['warn', 'Instalá la app en la pantalla de inicio para proteger las grabaciones']);
+  if (!settings.token) items.push(['warn', 'Falta la clave del servidor: cargala en Ajustes para transcribir']);
+  else if (!navigator.onLine) items.push(['warn', 'Sin internet: se graba igual y se transcribe al volver']);
+  else items.push(P.blocked ? ['bad', P.blocked] : ['ok', 'Transcripción conectada']);
+  items.push(liveAvailable() ? ['ok', 'Borrador en vivo disponible'] : ['', SR ? 'Borrador en vivo apagado: el texto llega por bloques' : 'Este navegador no tiene borrador en vivo: el texto llega por bloques']);
+  $('#health').innerHTML = items.map(([k, t]) => `<li><span class="dot ${k}"></span><span>${esc(t)}</span></li>`).join('');
+}
+async function renderSync() {
+  if (!db) return;
+  const [p, e, r] = await Promise.all([dbAll('segments', 'status', 'pending'), dbAll('segments', 'status', 'error'), dbAll('segments', 'status', 'closing')]);
+  const n = p.length + e.length + r.length;
+  const el = $('#sync');
+  let cls = 'ok', txt = 'Todo transcripto';
+  if (P.blocked) { cls = 'warn'; txt = 'Revisar Ajustes'; }
+  else if (!settings.token) { cls = 'warn'; txt = 'Sin servidor'; }
+  else if (n && !navigator.onLine) { cls = 'warn'; txt = `${n} en espera · sin internet`; }
+  else if (n) { cls = P.busy ? 'busy' : 'warn'; txt = `${n} por transcribir`; }
+  el.className = 'sync ' + cls;
+  el.lastElementChild.textContent = txt;
+}
+
+/* ---------- Listas ---------- */
+async function sessionStatus() {
+  const [p, e, r] = await Promise.all([dbAll('segments', 'status', 'pending'), dbAll('segments', 'status', 'error'), dbAll('segments', 'status', 'closing')]);
+  const map = new Map();
+  for (const g of [...p, ...r]) map.set(g.sid, { n: (map.get(g.sid)?.n || 0) + 1, err: map.get(g.sid)?.err || 0 });
+  for (const g of e) map.set(g.sid, { n: (map.get(g.sid)?.n || 0) + 1, err: (map.get(g.sid)?.err || 0) + 1 });
+  return map;
+}
+function itemHTML(s, st) {
+  const d = new Date(s.createdAt);
+  const hora = d.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hour12: false });
+  let badge = '';
+  if (s.id === R.sid && isActive()) badge = '<span class="badge rec">Grabando</span>';
+  else if (st?.err) badge = '<span class="badge warn">Reintentando</span>';
+  else if (st?.n) badge = `<span class="badge busy">Transcribiendo · ${st.n}</span>`;
+  else if (s.status === 'interrupted') badge = '<span class="badge warn">Recuperada</span>';
+  const tags = visibleTags(s);
+  return `<li><button class="item" data-open="${esc(s.id)}"><div class="item-top"><div><h3>${esc(s.title)}</h3>
+    <p class="meta tnum">${hora} h · ${C.formatDuration(s.durationMs)}</p></div>${badge}</div>
+    ${tags.length ? `<div class="tags">${tags.map((t) => `<span class="tag">${esc(t)}</span>`).join('')}</div>` : ''}</button></li>`;
+}
+async function renderRecent() {
+  if (!db) return;
+  const all = (await dbAll('sessions')).filter((s) => !s.deleted).sort((a, b) => b.createdAt - a.createdAt).slice(0, 3);
+  const st = await sessionStatus();
+  $('#recent').innerHTML = all.length ? all.map((s) => itemHTML(s, st.get(s.id))).join('') : '<li class="card empty small">Todavía no hay grabaciones.</li>';
+}
+const LF = { q: '', tag: '' };
+async function renderList() {
+  const all = (await dbAll('sessions')).filter((s) => !s.deleted).sort((a, b) => b.createdAt - a.createdAt);
+  const tags = [...new Set(all.flatMap(visibleTags))].sort((a, b) => a.localeCompare(b, 'es'));
+  if (LF.tag && !tags.includes(LF.tag)) LF.tag = '';
+  $('#filters').innerHTML = tags.length
+    ? [`<button class="chip" data-tag="" aria-pressed="${!LF.tag}">Todas</button>`, ...tags.map((t) => `<button class="chip" data-tag="${esc(t)}" aria-pressed="${LF.tag === t}">${esc(t)}</button>`)].join('')
+    : '';
+  const list = all.filter((s) => (!LF.tag || visibleTags(s).includes(LF.tag)) && C.matchesQuery(LF.q, s.title, s.client, visibleTags(s).join(' '), s.searchText || s.liveText || ''));
+  const st = await sessionStatus();
+  if (!list.length) { $('#list').innerHTML = `<div class="card empty small">${all.length ? 'No hay grabaciones que coincidan.' : 'Todavía no hay grabaciones.'}</div>`; return; }
+  const groups = new Map();
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  for (const s of list) {
+    const d = new Date(s.createdAt); d.setHours(0, 0, 0, 0);
+    const diff = Math.round((today - d) / 864e5);
+    const label = diff === 0 ? 'Hoy' : diff === 1 ? 'Ayer' : d.toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long', year: d.getFullYear() !== today.getFullYear() ? 'numeric' : undefined });
+    if (!groups.has(label)) groups.set(label, []);
+    groups.get(label).push(s);
+  }
+  $('#list').innerHTML = [...groups].map(([label, ss]) => `<h3 class="day">${esc(label)}</h3><ul class="list">${ss.map((s) => itemHTML(s, st.get(s.id))).join('')}</ul>`).join('');
+}
+let searchT = 0;
+$('#search').addEventListener('input', (e) => { clearTimeout(searchT); searchT = setTimeout(() => { LF.q = e.target.value; renderList(); }, 180); });
+$('#filters').addEventListener('click', (e) => { const c = e.target.closest('[data-tag]'); if (c) { LF.tag = c.dataset.tag; renderList(); } });
+
+/* ---------- Detalle ---------- */
+async function openDetail(sid, push = true) {
+  const s = await dbGet('sessions', sid);
+  if (!s) { go('list', {}, push); return; }
+  D.sid = sid; D.partIdx = 0;
+  go('detail', { sid }, push);
+  renderDetail(sid);
+}
+function revokeAudio() { if (D.url) { URL.revokeObjectURL(D.url); D.url = null; } }
+async function renderDetail(sid, soft = false) {
+  const s = await dbGet('sessions', sid);
+  if (!s || D.sid !== sid) return;
+  const [segments, live, marks] = await Promise.all([dbAll('segments', 'sid', sid), dbAll('lines', 'sid', sid), dbAllWithKeys('marks', 'sid', sid)]);
+  const items = C.buildTranscript({ segments, live, marks });
+  for (const it of items) if (it.kind === 'mark') it.key = marks.find((m) => m.ms === it.ms && m.text === it.text)?.key;
+  D.items = items;
+  const done = segments.filter((g) => g.status === 'done').length;
+  const errs = segments.filter((g) => g.status === 'error');
+  const recording = s.id === R.sid && isActive();
+  const d = new Date(s.createdAt);
+  const fecha0 = d.toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+  const fecha = fecha0.charAt(0).toUpperCase() + fecha0.slice(1);
+  const hIni = d.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hour12: false });
+  const hFin = s.endedAt ? new Date(s.endedAt).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hour12: false }) : '';
+  const tags = visibleTags(s);
+  const pct = segments.length ? Math.round((done / segments.length) * 100) : 0;
+  const transcriptHTML = items.length ? items.map((i) => lineHTML(i, true)).join('') : '<p class="empty small">Sin texto todavía.</p>';
+  const tagsHTML = tags.map((t) => `<span class="tag">${esc(t)}<button aria-label="Quitar ${esc(t)}" data-rmtag="${esc(t)}">×</button></span>`).join('') + '<button class="add-tag" id="d-addtag">+ Tema</button>';
+  if (soft && $('#d-transcript')) {
+    $('#d-transcript').innerHTML = transcriptHTML;
+    $('#d-tags').innerHTML = tagsHTML;
+    if (document.activeElement !== $('#d-title')) { $('#d-title').value = s.title; $('#d-title').dispatchEvent(new Event('input')); }
+    $('#d-progress').innerHTML = progressHTML();
+    return;
+  }
+  function progressHTML() {
+    if (!segments.length) return '';
+    if (done === segments.length) return `<p class="small muted">Transcripción completa · ${segments.length} bloques</p><div class="progress"><b style="width:100%"></b></div>`;
+    const msg = errs.length ? `Reintentando ${errs.length} bloque(s): ${esc(errs[0].error || '')}` : !navigator.onLine ? 'Sin internet: se transcribe al volver' : 'Transcribiendo…';
+    return `<p class="small muted">${done} de ${segments.length} bloques · ${msg}</p><div class="progress"><b style="width:${pct}%"></b></div>`;
+  }
+  $('#v-detail').innerHTML = `
+    <div class="detail-head"><button class="icon-btn" data-back aria-label="Volver">${ICON.back}</button>
+      <textarea class="title-input" id="d-title" rows="1" aria-label="Título" maxlength="90">${esc(s.title)}</textarea></div>
+    <div class="facts tnum"><span>${esc(fecha)}</span><span>${hIni}${hFin ? '–' + hFin : ''} h</span><span>${C.formatDuration(s.durationMs)}</span>
+      ${s.status === 'interrupted' ? '<span class="badge warn">Recuperada tras un corte</span>' : ''}${recording ? '<span class="badge rec">Grabando ahora</span>' : ''}</div>
+    <div class="tags" id="d-tags">${tagsHTML}</div>
+    <div class="sec" style="margin-top:var(--s-head)">
+      ${recording ? '<div class="card player"><p class="small muted" style="margin:0">El audio se puede escuchar al terminar la grabación.</p></div>' : `
+      <div class="card player"><audio id="d-audio" controls preload="metadata"></audio>
+        ${(s.parts || []).length > 1 ? `<div class="parts">${s.parts.map((p, i) => `<button class="chip" data-part="${i}" aria-pressed="${i === D.partIdx}">Parte ${i + 1}</button>`).join('')}</div><p class="help">La grabación tiene ${s.parts.length} partes (por un corte o porque la continuaste). Tocá una línea del texto para ir a ese momento.</p>` : ''}
+      </div>`}
+    </div>
+    <div class="sec">
+      <div class="actions-grid">
+        <button class="btn btn-primary" id="d-claude">${ICON.copy}Copiar para Claude</button>
+        <button class="btn" id="d-txt" aria-label="Descargar texto">${ICON.text}Texto</button>
+        <button class="btn" id="d-audio-dl" aria-label="Descargar audio" ${recording ? 'disabled' : ''}>${ICON.audio}Audio</button>
+        <button class="btn" id="d-share" ${recording ? 'disabled' : ''}>${ICON.share}Compartir</button>
+      </div>
+    </div>
+    <div class="sec">
+      <div class="sec-head"><h2>Transcripción</h2></div>
+      <div id="d-progress">${progressHTML()}</div>
+      <div class="card transcript" id="d-transcript" style="margin-top:12px">${transcriptHTML}</div>
+    </div>
+    <div class="sec more">
+      ${errs.length ? '<button class="btn btn-sm" id="d-retry">Reintentar ahora</button>' : ''}
+      ${!recording && !isActive() ? '<button class="btn btn-sm" id="d-continue">Seguir grabando en esta</button>' : ''}
+      ${!recording ? '<button class="btn btn-sm" id="d-trash">Mover a papelera</button>' : ''}
+    </div>`;
+  if (!recording) loadPart(s, D.partIdx);
+  bindDetail(s);
+}
+async function loadPart(s, idx) {
+  const audio = $('#d-audio');
+  const p = (s.parts || [])[idx];
+  if (!audio || !p) return;
+  revokeAudio();
+  const blob = await assemble(s.id, 'm', p.part, s.mime);
+  D.url = URL.createObjectURL(blob);
+  D.partIdx = idx;
+  audio.src = D.url;
+  audio.onloadedmetadata = () => {
+    // Los WebM de MediaRecorder no traen duración: se fuerza el cálculo para poder adelantar.
+    if (audio.duration === Infinity || Number.isNaN(audio.duration)) {
+      audio.currentTime = 1e101;
+      audio.addEventListener('durationchange', function fix() { audio.removeEventListener('durationchange', fix); audio.currentTime = D.pendingSeek ?? 0; D.pendingSeek = null; }, { once: true });
+    } else if (D.pendingSeek != null) { audio.currentTime = D.pendingSeek; D.pendingSeek = null; }
+  };
+  audio.ontimeupdate = () => highlightAt(p.startMs + audio.currentTime * 1000);
+  $$('[data-part]').forEach((b) => b.setAttribute('aria-pressed', String(Number(b.dataset.part) === idx)));
+}
+let lastHi = null;
+function highlightAt(ms) {
+  const nodes = $$('#d-transcript [data-ms]');
+  let cur = null;
+  for (const n of nodes) { if (Number(n.dataset.ms) <= ms) cur = n; else break; }
+  if (cur !== lastHi) { lastHi?.classList.remove('now'); cur?.classList.add('now'); lastHi = cur; }
+}
+async function seekTo(s, ms) {
+  const parts = s.parts || [];
+  let idx = 0;
+  parts.forEach((p, i) => { if (p.startMs <= ms) idx = i; });
+  const p = parts[idx];
+  if (!p) return;
+  const t = Math.max(0, (ms - p.startMs) / 1000 - 1);
+  if (idx !== D.partIdx || !D.url) { D.pendingSeek = t; await loadPart(s, idx); }
+  else $('#d-audio').currentTime = t;
+  $('#d-audio').play().catch(() => {});
+}
+function bindDetail(s) {
+  const fresh = () => dbGet('sessions', s.id);
+  const ti = $('#d-title');
+  const fit = () => { ti.style.height = 'auto'; ti.style.height = ti.scrollHeight + 'px'; };
+  fit();
+  ti.addEventListener('input', fit);
+  ti.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); ti.blur(); } });
+  ti.addEventListener('change', async (e) => {
+    const cur = await fresh();
+    cur.title = e.target.value.trim() || C.defaultTitle(cur.createdAt, cur.client);
+    cur.titleManual = true;
+    await dbPut('sessions', cur);
+    if (R.session?.id === cur.id) { R.session.title = cur.title; R.session.titleManual = true; }
+    toast('Título guardado');
+  });
+  $('#d-tags').addEventListener('click', async (e) => {
+    const rm = e.target.closest('[data-rmtag]');
+    const add = e.target.closest('#d-addtag');
+    if (!rm && !add) return;
+    const cur = await fresh();
+    cur.userTags = cur.userTags || []; cur.hiddenTags = cur.hiddenTags || [];
+    if (rm) {
+      const t = rm.dataset.rmtag;
+      cur.userTags = cur.userTags.filter((x) => x !== t);
+      if ((cur.tags || []).includes(t)) cur.hiddenTags.push(t);
+    } else {
+      const t = (await dialog({ title: 'Agregar tema', input: '', ok: 'Agregar' }))?.trim();
+      if (!t) return;
+      cur.hiddenTags = cur.hiddenTags.filter((x) => x !== t);
+      if (!cur.userTags.includes(t)) cur.userTags.push(t.slice(0, 30));
+    }
+    await dbPut('sessions', cur);
+    if (R.session?.id === cur.id) Object.assign(R.session, { userTags: cur.userTags, hiddenTags: cur.hiddenTags });
+    renderDetail(s.id);
+  });
+  $('#d-transcript').addEventListener('click', (e) => {
+    const m = e.target.closest('[data-mark]');
+    if (m) { renameMark(Number(m.dataset.mark), m, s.id); return; }
+    const l = e.target.closest('[data-ms]');
+    if (l && $('#d-audio')) seekTo(s, Number(l.dataset.ms));
+  });
+  $$('[data-part]').forEach((b) => b.addEventListener('click', () => loadPart(s, Number(b.dataset.part))));
+  $('#d-claude').addEventListener('click', async () => {
+    const cur = await fresh();
+    const txt = C.claudeExport({ ...cur, tags: visibleTags(cur) }, D.items);
+    if (await copyText(txt)) toast(`Copiado (${D.items.length} líneas). Pegalo en Claude.`);
+    else downloadBlob(new Blob([txt], { type: 'text/plain;charset=utf-8' }), `acta-${C.fileStamp(cur.createdAt)}.txt`);
+  });
+  $('#d-txt').addEventListener('click', async () => {
+    const cur = await fresh();
+    downloadBlob(textFile(cur), `acta-${C.fileStamp(cur.createdAt)}.txt`);
+  });
+  $('#d-audio-dl')?.addEventListener('click', async () => {
+    const cur = await fresh();
+    for (const f of await audioFiles(cur)) { downloadBlob(f, f.name); await sleep(400); }
+  });
+  $('#d-share')?.addEventListener('click', async () => {
+    const cur = await fresh();
+    const files = [new File([textFile(cur)], `acta-${C.fileStamp(cur.createdAt)}.txt`, { type: 'text/plain' }), ...(await audioFiles(cur))];
+    if (navigator.canShare?.({ files })) {
+      try { await navigator.share({ files, title: cur.title }); } catch { /* cancelado */ }
+    } else { toast('Este navegador no permite compartir archivos: se descargan.'); for (const f of files) { downloadBlob(f, f.name); await sleep(400); } }
+  });
+  $('#d-retry')?.addEventListener('click', async () => {
+    const segs = await dbAll('segments', 'sid', s.id);
+    for (const g of segs) if (g.status === 'error') { g.nextTry = 0; g.status = 'pending'; await dbPut('segments', g); }
+    P.blocked = ''; pumpQueue(); toast('Reintentando…');
+  });
+  $('#d-continue')?.addEventListener('click', async () => {
+    const cur = await fresh();
+    go('rec'); startRecording(cur);
+  });
+  $('#d-trash')?.addEventListener('click', async () => {
+    const ok = await dialog({ title: 'Mover a la papelera', body: 'No se borra nada: podés restaurarla desde Ajustes › Papelera.', ok: 'Mover', cancel: 'Cancelar' });
+    if (!ok) return;
+    const cur = await fresh();
+    cur.deleted = true; cur.deletedAt = Date.now();
+    await dbPut('sessions', cur);
+    toast('Movida a la papelera'); go('list');
+  });
+}
+function textFile(s) {
+  const txt = `${C.exportHeader({ ...s, tags: visibleTags(s) })}\n\n${C.transcriptPlain(D.items)}\n`;
+  return new Blob([txt], { type: 'text/plain;charset=utf-8' });
+}
+async function audioFiles(s) {
+  const ext = C.extForMime(s.mime);
+  const files = [];
+  for (const [i, p] of (s.parts || []).entries()) {
+    const blob = await assemble(s.id, 'm', p.part, s.mime);
+    if (blob.size) files.push(new File([blob], `acta-${C.fileStamp(s.createdAt)}${s.parts.length > 1 ? `-parte${i + 1}` : ''}.${ext}`, { type: blob.type }));
+  }
+  return files;
+}
+function downloadBlob(blob, name) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 60000);
+}
+async function copyText(t) {
+  try { await navigator.clipboard.writeText(t); return true; } catch {
+    const ta = document.createElement('textarea'); ta.value = t; ta.style.position = 'fixed'; ta.style.opacity = '0';
+    document.body.appendChild(ta); ta.select();
+    let ok = false; try { ok = document.execCommand('copy'); } catch { ok = false; }
+    ta.remove(); return ok;
+  }
+}
+
+/* ---------- Ajustes ---------- */
+function renderSettings() {
+  const f = $('#settings-form').elements;
+  f.endpoint.value = settings.endpoint; f.token.value = settings.token; f.lang.value = settings.lang;
+  f.segSec.value = String(settings.segSec); f.bitrate.value = String(settings.bitrate); f.live.checked = settings.live;
+  f.customTags.value = settings.customTags;
+  $('#live-help').innerHTML = !SR ? 'Este navegador no ofrece reconocimiento de voz en vivo.'
+    : store.get('liveConflict') === '1' ? 'Se apagó sola porque tu teléfono no deja grabar y transcribir en vivo a la vez. <button class="btn btn-sm" type="button" id="btn-reset-live">Probar de nuevo</button>' : '';
+  $('#btn-reset-live')?.addEventListener('click', () => { store.del('liveConflict'); renderSettings(); toast('Se va a probar en la próxima grabación.'); });
+  renderStorage();
+}
+async function renderStorage() {
+  const est = await navigator.storage?.estimate?.().catch(() => null);
+  const persisted = await navigator.storage?.persisted?.().catch(() => false);
+  const sessions = (await dbAll('sessions')).filter((s) => !s.deleted);
+  $('#storage-kv').innerHTML = `<dt>Grabaciones</dt><dd>${sessions.length}</dd>
+    <dt>Espacio usado</dt><dd>${est ? C.formatBytes(est.usage) : '—'}</dd>
+    <dt>Espacio disponible</dt><dd>${est ? C.formatBytes(est.quota - est.usage) : '—'}</dd>
+    <dt>Protegido contra borrado</dt><dd style="color:${persisted ? 'var(--ok)' : 'var(--warn)'}">${persisted ? 'Sí' : 'No'}</dd>`;
+  $('#btn-persist').hidden = !!persisted;
+}
+$('#settings-form').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const f = e.currentTarget.elements;
+  saveSettings({ endpoint: f.endpoint.value, token: f.token.value, lang: f.lang.value, segSec: f.segSec.value, bitrate: f.bitrate.value, live: f.live.checked, customTags: f.customTags.value });
+  P.blocked = '';
+  toast('Ajustes guardados'); renderHealth(); renderSync(); pumpQueue();
+});
+$('#btn-test').addEventListener('click', async () => {
+  const f = $('#settings-form').elements, out = $('#test-out');
+  out.textContent = 'Probando…';
+  try {
+    const r = await fetch(f.endpoint.value.trim(), { headers: { 'x-app-token': f.token.value.trim() } });
+    const j = await r.json().catch(() => ({}));
+    out.textContent = r.ok ? `Conectado. Motor: ${j.model || 'ok'}.` : r.status === 401 ? 'La clave no coincide con la del servidor.' : `Error ${r.status}: ${j.error || 'revisá la dirección'}`;
+  } catch { out.textContent = 'No se pudo conectar. Revisá la dirección y tu internet.'; }
+});
+$('#btn-persist').addEventListener('click', async () => {
+  const ok = await navigator.storage?.persist?.().catch(() => false);
+  toast(ok ? 'Almacenamiento protegido' : 'El navegador no lo concedió: instalá la app en la pantalla de inicio y volvé a probar.');
+  renderStorage(); renderHealth();
+});
+$('#btn-optimize').addEventListener('click', async () => {
+  const ok = await dialog({ title: 'Liberar copias de respaldo', body: 'Se borra la segunda copia de audio (la usada para transcribir) de grabaciones totalmente transcriptas hace más de 7 días. El audio principal y el texto quedan.', ok: 'Liberar', cancel: 'Cancelar' });
+  if (!ok) return;
+  const limit = Date.now() - 7 * 864e5;
+  const sessions = (await dbAll('sessions')).filter((s) => s.status !== 'recording' && (s.endedAt || 0) < limit);
+  let n = 0;
+  for (const s of sessions) {
+    const segs = await dbAll('segments', 'sid', s.id);
+    if (!segs.length || segs.some((g) => g.status !== 'done')) continue;
+    for (const g of segs) await dbDeleteWhere(['chunks'], 'track', IDBKeyRange.only([s.id, 's', g.idx]));
+    n += 1;
+  }
+  toast(n ? `Listo: ${n} grabación(es) optimizadas` : 'No hay copias para liberar todavía');
+  renderStorage();
+});
+
+/* ---------- Papelera ---------- */
+async function renderTrash() {
+  const all = (await dbAll('sessions')).filter((s) => s.deleted).sort((a, b) => b.deletedAt - a.deletedAt);
+  $('#trash-list').innerHTML = all.length ? all.map((s) => `<li class="card" style="padding:16px"><h3 style="font-size:1rem">${esc(s.title)}</h3>
+    <p class="meta small muted">${C.formatDuration(s.durationMs)} · ${new Date(s.createdAt).toLocaleDateString('es-AR')}</p>
+    <div class="more" style="margin-top:12px"><button class="btn btn-sm" data-restore="${esc(s.id)}">Restaurar</button><button class="btn btn-sm" data-purge="${esc(s.id)}">Eliminar para siempre</button></div></li>`).join('')
+    : '<li class="card empty small">La papelera está vacía.</li>';
+}
+$('#trash-list').addEventListener('click', async (e) => {
+  const r = e.target.closest('[data-restore]'), p = e.target.closest('[data-purge]');
+  if (r) { const s = await dbGet('sessions', r.dataset.restore); s.deleted = false; await dbPut('sessions', s); toast('Restaurada'); renderTrash(); }
+  if (p) {
+    const s = await dbGet('sessions', p.dataset.purge);
+    const ok = await dialog({ title: 'Eliminar para siempre', body: `Se borran el audio y el texto de «${s.title}». No se puede deshacer.`, ok: 'Eliminar', cancel: 'Cancelar', danger: true });
+    if (!ok) return;
+    await dbDeleteWhere(['chunks', 'segments', 'lines', 'marks'], 'sid', IDBKeyRange.only(s.id));
+    const t = db.transaction('sessions', 'readwrite'); t.objectStore('sessions').delete(s.id); await txDone(t);
+    toast('Eliminada'); renderTrash();
+  }
+});
+
+/* =========================================================
+   Eventos globales y arranque
+   ========================================================= */
+window.addEventListener('beforeunload', (e) => { if (isActive()) { saveSession(); e.preventDefault(); e.returnValue = ''; } });
+window.addEventListener('pagehide', () => { if (isActive()) saveSession(); });
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') {
+    if (isActive()) { requestWake(); ensureAudioCtx(); if (L.wanted && !L.rec) spawnLive(); if (R.state === 'recording' && C.isStalled(R.lastChunkAt, performance.now(), TIMESLICE)) recover('la app quedó en segundo plano', false); }
+    pumpQueue(); renderSync();
+  } else if (isActive()) saveSession();
+});
+window.addEventListener('online', () => { clearAlert('liveNet'); pumpQueue(); renderHealth(); });
+window.addEventListener('offline', () => { renderSync(); renderHealth(); });
+navigator.getBattery?.().then((b) => {
+  const check = () => { if (isActive() && !b.charging && b.level <= 0.2) showAlert('battery', `Batería al ${Math.round(b.level * 100)} %. Conectá el cargador para no cortar la reunión.`, 'bad'); else clearAlert('battery'); };
+  b.addEventListener('levelchange', check); b.addEventListener('chargingchange', check);
+  setInterval(check, 60000);
+}).catch(() => {});
+
+let deferredInstall = null;
+window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); deferredInstall = e; $('#btn-install').hidden = false; });
+$('#btn-install').addEventListener('click', async () => { if (!deferredInstall) return; deferredInstall.prompt(); await deferredInstall.userChoice.catch(() => {}); deferredInstall = null; $('#btn-install').hidden = true; });
+
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch((e) => console.warn('SW', e));
+
+(async function boot() {
+  history.replaceState({ view: 'rec' }, '');
+  try { db = await openDB(); }
+  catch (e) {
+    await dialog({ title: 'No se puede abrir el almacenamiento', body: `${e.message || e}. Cerrá otras pestañas de Acta o salí del modo incógnito.`, ok: 'Entendido', cancel: null });
+    return;
+  }
+  const recovered = await recoverInterrupted().catch((e) => { console.warn(e); return []; });
+  showRecoveryBanner(recovered);
+  renderHealth(); renderRecent(); renderSync();
+  setInterval(pumpQueue, 20000);
+  pumpQueue();
+  window.__acta = { R, P, settings: () => settings }; // inspección y pruebas
+})();
+</script>
+</body>
+</html>

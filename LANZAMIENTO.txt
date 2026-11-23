@@ -1,0 +1,106 @@
+ACTA - GRABADORA DE REUNIONES
+Documento de lanzamiento
+
+QUE ES
+App web instalable (PWA) que graba reuniones largas en el teléfono, muestra el texto mientras
+hablan y guarda todo sin depender de internet. La transcripción final la hace Whisper (Groq)
+a través de una función de Vercel, así la clave del proveedor nunca está en el teléfono.
+
+ESTRUCTURA
+  index.html            interfaz y motor de grabación
+  core.js               lógica pura (formato, etiquetas, limpieza de Whisper); la usan las pruebas
+  sw.js                 hace que la app abra sin internet
+  manifest.webmanifest  permite instalarla en la pantalla de inicio
+  icon.svg, icon-192.png, icon-512.png
+  api/transcribe.js     función serverless que habla con Whisper
+  vercel.json           cabeceras de seguridad y tiempo máximo de la función
+  package.json          "type": "module" y scripts de prueba
+  tests/                pruebas (npm test = lógica; npm run verify = lógica + navegador)
+
+1) CUENTA DE GROQ (gratis, sin tarjeta)
+  - Entrá a console.groq.com, creá cuenta y generá una API key en "API Keys".
+  - Límite del plan gratis: 20 pedidos por minuto, 2.000 por día, 2 h de audio por hora y
+    8 h por día. Una reunión de 4 h entra; dos reuniones de 4 h el mismo día llegan justo al tope
+    (lo que exceda se transcribe solo al día siguiente; el audio queda guardado igual).
+
+2) REPOSITORIO (PowerShell, fuera de OneDrive)
+  mkdir C:\dev\acta ; cd C:\dev\acta
+  (copiá acá todos los archivos respetando la carpeta api y la carpeta tests)
+  git init
+  git add .
+  git commit -m "Acta v1"
+  Creá el repo vacío en GitHub y después:
+  git remote add origin https://github.com/TU_USUARIO/acta.git
+  git branch -M main
+  git push -u origin main
+
+3) VERCEL
+  - New Project > importar el repo. Framework: "Other". Sin build command. Root: la raíz.
+  - Settings > Environment Variables (Production y Preview):
+      APP_TOKEN     una clave larga inventada por vos (ej. 24 letras y números al azar)
+      STT_API_KEY   la API key de Groq
+    Opcionales:
+      STT_MODEL     whisper-large-v3 (por defecto, más precisa) o whisper-large-v3-turbo (más barata)
+      STT_BASE_URL  solo si cambiás de proveedor (OpenAI: https://api.openai.com/v1 con STT_MODEL=whisper-1)
+  - Deploy. Después de cargar variables, hacé Redeploy para que las tome.
+  - Settings > Deployment Protection: desactivala, o el teléfono no va a poder llamar a la API.
+
+4) EN EL TELEFONO (Chrome en Android)
+  - Abrí https://TU-PROYECTO.vercel.app
+  - Menú de Chrome > "Agregar a la pantalla principal" (o el botón Instalar de la app).
+    IMPORTANTE: instalada, el sistema protege el almacenamiento y no borra grabaciones.
+  - Abrí la app instalada > Ajustes > pegá el APP_TOKEN > Guardar > Probar conexión.
+    Tiene que decir "Conectado. Motor: whisper-large-v3".
+  - Aceptá el permiso de micrófono como "Permitir siempre" (no "solo esta vez").
+  - Ajustes del teléfono > Apps > Chrome > Batería > Sin restricciones (evita que Android corte
+    la app en reuniones largas).
+
+5) PRUEBA ANTES DE LA PRIMERA REUNION REAL (10 minutos)
+  a. Grabá 3 minutos hablando. Mirá que el contador avance y que aparezca texto.
+  b. Tocá Marcar y renombrá la marca tocándola.
+  c. Pausá 20 s y continuá: el contador no debe avanzar en pausa.
+  d. Prueba de corte: con la grabación andando, cerrá Chrome desde "apps recientes".
+     Abrí la app: debe aparecer "Grabación recuperada". Tocá "Seguir grabando".
+  e. Modo avión 1 minuto mientras graba: la grabación sigue; el texto final llega al volver.
+  f. Terminá. En el detalle: escuchá el audio, tocá una línea para saltar a ese momento,
+     probá "Copiar para Claude" y pegalo en Claude.
+  g. Si el aviso dice "Tu teléfono no permite grabar y transcribir en vivo a la vez", es normal
+     en algunos Android: la app prioriza el audio y el texto llega por bloques cada 2 minutos.
+
+6) DURANTE UNA REUNION DE 3 O 4 HORAS
+  - Cargador conectado (con pantalla encendida, 4 h consumen bastante batería).
+  - Usá el botón de la luna para atenuar la pantalla (negro total, ahorra batería en OLED).
+  - No cambies de app durante mucho tiempo: Android puede pausar el borrador en vivo.
+    La grabación de audio suele seguir; si se corta, la app lo detecta, reconecta y deja una marca
+    con los segundos perdidos.
+  - Espacio: unos 58 MB de audio por cada 4 h (más una copia de respaldo del mismo tamaño).
+
+7) PRUEBAS LOCALES (opcional, en la PC)
+  npm test            pruebas de la lógica (no necesita nada instalado)
+  npm run verify      además abre Chrome sin pantalla con micrófono falso y una API simulada.
+                      Requiere: npm i -D playwright  y Chrome instalado (ajustar executablePath
+                      en tests/e2e.mjs si Chrome está en otra ruta).
+  Para probar con la función real en local: npm i -g vercel ; vercel dev  (Live Server no
+  ejecuta /api). El micrófono funciona en http://localhost; en el teléfono solo con HTTPS.
+
+CAPAS DE PROTECCION CONTRA PERDIDAS (resumen)
+  - Doble grabación simultánea: una pista continua para escuchar y otra por bloques para
+    transcribir. Si una falla, queda la otra.
+  - Cada 2 s el audio se escribe en el teléfono (IndexedDB, escritura confirmada en disco).
+  - Si el disco falla, el audio queda en memoria y se reintenta cada 3 s; al terminar, si
+    algo no se pudo guardar, se descarga un respaldo automático.
+  - Vigilancia cada 3 s: si el grabador deja de entregar audio o el micrófono se corta,
+    reconecta solo y marca el corte.
+  - Cierre inesperado (batería, Chrome cerrado, reinicio): al abrir, recupera todo lo guardado
+    y permite seguir grabando en la misma sesión.
+  - La transcripción nunca bloquea la grabación: los bloques esperan en cola y se reintentan
+    con espera creciente, sin perderse aunque no haya internet por horas.
+  - Nada se borra solo. Borrar pasa por la papelera y requiere confirmación.
+  - Riesgo que queda: si el teléfono se pierde o se rompe antes de compartir la grabación,
+    se pierde. Mitigación hoy: botón Compartir > Google Drive al terminar cada reunión.
+    Próximo módulo recomendado: respaldo automático en la nube.
+
+PENDIENTES DE CONFIRMAR
+  - Probar en TU modelo de Android si permite borrador en vivo y grabación a la vez.
+  - Probar si la grabación sigue con la pantalla apagada en tu teléfono (depende del fabricante).
+  - En iPhone: Safari corta la grabación al bloquear la pantalla; usar con pantalla encendida.

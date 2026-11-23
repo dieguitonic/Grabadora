@@ -1,0 +1,10 @@
+{
+  "name": "acta-grabadora",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test tests/core.test.js",
+    "verify": "node --test tests/core.test.js && node tests/e2e.mjs"
+  },
+  "engines": { "node": ">=20" }
+}
