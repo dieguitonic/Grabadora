@@ -93,7 +93,20 @@ export function analyzeLevel(bytes) {
 
 export const SILENCE_RMS = 0.004;
 
+/**
+ * Tras volver de segundo plano: ¿cuánto audio falta? (ms). Compara el tiempo real que pasó
+ * con los trozos que el grabador entregó. 0 si no hubo corte.
+ */
+export function backgroundGapMs(hiddenMs, chunksGot, timesliceMs) {
+  const expected = Math.floor(hiddenMs / timesliceMs);
+  const missing = expected - chunksGot;
+  return missing > 2 && missing > expected * 0.15 ? missing * timesliceMs : 0;
+}
+
 /* ---------- Transcripción en vivo (Web Speech) ---------- */
+/** Texto comparable: sin acentos, mayúsculas, signos ni espacios repetidos. */
+export const compactText = (s) => normalizeText(s).replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
+
 /**
  * Agrega un resultado final en vivo. Corrige el bug de Android que repite
  * el texto acumulado de la misma sesión de reconocimiento.
@@ -105,7 +118,7 @@ export function mergeLiveFinal(lines, text, ms, run) {
   const lastIdx = lines.length - 1;
   const last = lines[lastIdx];
   if (last && last.run === run) {
-    const a = normalizeText(last.text), b = normalizeText(t);
+    const a = compactText(last.text), b = compactText(t);
     if (a === b || a.endsWith(b)) return { op: 'skip' };
     if (b.startsWith(a)) return { op: 'replace', index: lastIdx, line: { ...last, text: t } };
   }

@@ -131,3 +131,16 @@ test('títulos y exportación', () => {
   assert.match(txt, /\[00:00\] hola/);
   assert.equal(C.fileStamp(ts), '20261123-0905');
 });
+
+test('mergeLiveFinal ignora signos al comparar (final que llega después de pausar)', () => {
+  const lines = [{ ms: 0, text: 'hola como estas', run: 3 }];
+  assert.equal(C.mergeLiveFinal(lines, 'Hola, ¿cómo estás?', 0, 3).op, 'skip');
+  assert.equal(C.mergeLiveFinal(lines, 'Hola, ¿cómo estás? Bien.', 0, 3).op, 'replace');
+});
+
+test('backgroundGapMs detecta audio faltante en segundo plano', () => {
+  assert.equal(C.backgroundGapMs(60000, 30, 2000), 0);
+  assert.equal(C.backgroundGapMs(60000, 29, 2000), 0);
+  assert.equal(C.backgroundGapMs(60000, 5, 2000), 50000);
+  assert.equal(C.backgroundGapMs(3000, 0, 2000), 0);
+});

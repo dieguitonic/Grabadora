@@ -50,7 +50,7 @@ h2{font-size:1.05rem;font-weight:650}
 .sync.ok i{background:var(--ok)}.sync.busy i{background:#2F6FEB}.sync.warn i{background:var(--warn)}
 
 /* Vistas */
-main{padding-bottom:calc(var(--nav-h) + env(safe-area-inset-bottom) + 24px)}
+#app{padding-bottom:calc(var(--nav-h) + env(safe-area-inset-bottom) + 32px)}
 .view{padding-top:var(--s-head)}
 .sec+.sec{margin-top:var(--s-block)}
 .sec-head{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-bottom:12px}
@@ -124,7 +124,7 @@ textarea.input{min-height:96px;resize:vertical;line-height:1.45}
 
 /* Grabación en curso */
 .live{display:flex;flex-direction:column;gap:12px;height:calc(100dvh - var(--top-h) - var(--nav-h) - env(safe-area-inset-bottom) - var(--s-head) - 16px);min-height:460px}
-main.is-live{padding-bottom:calc(var(--nav-h) + env(safe-area-inset-bottom) + 16px)}
+#app.is-live{padding-bottom:calc(var(--nav-h) + env(safe-area-inset-bottom) + 16px)}
 .live-head{padding:16px 20px;display:grid;gap:10px;flex:none}
 .live-row{display:flex;align-items:center;justify-content:space-between;gap:12px}
 .pill{display:inline-flex;align-items:center;gap:8px;font-size:.875rem;font-weight:650;padding:6px 12px;border-radius:999px;background:var(--accent-soft);color:var(--accent-ink)}
@@ -182,6 +182,9 @@ button.line:hover{background:#FAFAF8}
 @media (min-width:768px){.actions-grid{grid-template-columns:1.4fr 1fr 1fr 1fr}.actions-grid .btn-primary{grid-column:auto}}
 .progress{height:6px;border-radius:999px;background:#ECECE7;overflow:hidden;margin-top:8px}
 .progress b{display:block;height:100%;background:var(--ok);width:0;transition:width .3s}
+.btn-continue{width:100%;margin-bottom:10px;color:var(--accent-ink);border-color:#F2C4BF}
+.btn-continue i{width:10px;height:10px;border-radius:50%;background:var(--accent)}
+.btn-continue:hover{background:var(--accent-soft);border-color:#EDB1AA}
 .add-tag{border:1px dashed #C9C9C2;background:transparent;font-size:.75rem;font-weight:600;padding:4px 12px;border-radius:999px;color:var(--ink-2);min-height:28px}
 .more{display:flex;flex-wrap:wrap;gap:10px}
 
@@ -531,6 +534,7 @@ const R = {
   live: [], marks: [], doneSegs: [],
   audioCtx: null, analyser: null, srcNode: null, abuf: null, level: 0, segMax: 0,
   flatSince: 0, lastFlatAction: 0, reconnecting: false, userStopping: false, timers: [], wakeOk: false,
+  masterChunks: 0, hiddenAt: 0, chunksAtHide: 0,
 };
 const activeMs = () => R.accMs + (R.state === 'recording' ? performance.now() - R.resumeAt : 0);
 const isActive = () => ['recording', 'paused', 'reconnecting'].includes(R.state);
@@ -600,6 +604,11 @@ function makeRecorder(track, part) {
     if (!e.data || !e.data.size) return;
     R.lastChunkAt = performance.now();
     enqueue({ sid, track, part, ms: Math.round(activeMs()), at: Date.now(), blob: e.data });
+    if (track === 'm' && sid === R.sid) {
+      R.masterChunks += 1;
+      maybeRotate();
+      if (R.masterChunks % 5 === 0) saveSession();
+    }
   };
   mr.onerror = (e) => { console.warn('MediaRecorder', e.error); if (R.state === 'recording') recover('error del grabador', false); };
   mr.start(TIMESLICE);
@@ -637,6 +646,9 @@ async function closeSegment(mr, seg) {
   try { await dbPut('segments', seg, undefined, true); } catch (e) { console.warn(e); }
   pumpQueue();
 }
+function maybeRotate() {
+  if (R.state === 'recording' && R.segRec && activeMs() - R.segStartMs >= settings.segSec * 1000) rotateSegment();
+}
 function rotateSegment() {
   const oldMr = R.seg, oldSeg = R.segRec;
   oldSeg.maxLevel = R.segMax;
@@ -656,7 +668,7 @@ function saveSession(strict = false) {
 }
 
 async function startRecording(resume) {
-  if (R.state !== 'idle') return;
+  if (R.state !== 'idle') { toast(isActive() ? 'Ya hay una grabación en curso.' : 'Esperá un segundo: se está guardando la grabación anterior.'); if (isActive()) go('rec'); return; }
   if (!window.MediaRecorder || !navigator.mediaDevices?.getUserMedia) {
     await dialog({ title: 'No se puede grabar acá', body: 'Este navegador no permite grabar audio. Usá Chrome actualizado en Android, o Safari 16+ en iPhone.', ok: 'Entendido', cancel: null });
     return;
@@ -697,7 +709,7 @@ async function startRecording(resume) {
     };
     R.accMs = 0; R.live = []; R.marks = []; R.doneSegs = []; R.segIdx = -1; R.masterPart = -1;
   }
-  R.sid = R.session.id; R.bytes = 0; R.userStopping = false;
+  R.sid = R.session.id; R.bytes = 0; R.userStopping = false; R.masterChunks = 0; R.hiddenAt = 0;
   R.state = 'recording'; R.resumeAt = performance.now(); R.lastChunkAt = performance.now(); R.lastSavedAt = Date.now();
   R.session.endedAt = null;
   await saveSession(true);
@@ -707,30 +719,41 @@ async function startRecording(resume) {
   btn.disabled = false;
   $('#client').value = '';
   $('#recovery').innerHTML = '';
-  startTimers(); requestWake(); startLive();
+  startTimers(); requestWake(); startLive(); startBackground();
   showLive(); renderLivePanel(); vibrate(60);
 }
 
+function closeCurrentSegment() {
+  const seg = R.segRec, mr = R.seg;
+  R.seg = null; R.segRec = null;
+  if (seg && seg.status === 'recording') {
+    seg.endMs = Math.round(activeMs()); seg.maxLevel = R.segMax;
+    return closeSegment(mr, seg);
+  }
+  return Promise.resolve();
+}
 function pauseRecording() {
   if (R.state !== 'recording') return;
+  stopLive(); // primero guarda la frase en curso, con la hora correcta
+  closeCurrentSegment(); // lo dicho hasta la pausa se transcribe enseguida
   R.accMs = activeMs(); R.state = 'paused';
   try { R.master?.pause(); } catch { /* ya pausado */ }
-  try { R.seg?.pause(); } catch { /* ya pausado */ }
-  stopLive(); saveSession(true); updateLiveUI(); vibrate(40);
+  saveSession(true); updateLiveUI(); updateMediaSession(); vibrate(40);
 }
 function resumeRecording() {
   if (R.state !== 'paused') return;
   R.state = 'recording'; R.resumeAt = performance.now(); R.lastChunkAt = performance.now();
   try { R.master?.resume(); } catch { /* ya activo */ }
-  try { R.seg?.resume(); } catch { /* ya activo */ }
-  startLive(); saveSession(true); updateLiveUI(); vibrate(40);
+  if (!R.segRec) startSegment();
+  startLive(); saveSession(true); updateLiveUI(); updateMediaSession(); vibrate(40);
 }
 
 async function stopRecording() {
   if (!isActive()) return;
   R.userStopping = true;
+  if (R.state === 'recording') stopLive();
   R.accMs = activeMs(); R.state = 'stopping';
-  stopLive(); stopTimers();
+  stopTimers();
   const seg = R.segRec;
   if (seg && seg.status === 'recording') { seg.endMs = Math.round(R.accMs); seg.maxLevel = R.segMax; }
   const segClose = closeSegment(R.seg, seg);
@@ -743,7 +766,7 @@ async function stopRecording() {
   retag(s, s.liveText);
   try { await dbPut('sessions', s, undefined, true); } catch (e) { console.warn(e); }
   if (!flushed) await emergencyExport(s);
-  releaseStream(); releaseWake();
+  releaseStream(); releaseWake(); stopBackground();
   releaseLock?.(); releaseLock = null;
   const sid = R.sid;
   Object.assign(R, { state: 'idle', sid: null, session: null, master: null, seg: null, segRec: null, live: [], marks: [], doneSegs: [], reconnecting: false });
@@ -757,8 +780,9 @@ async function recover(reason, reacquire) {
   if (!['recording', 'paused'].includes(R.state) || R.reconnecting) return;
   R.reconnecting = true;
   const wasPaused = R.state === 'paused';
+  if (!wasPaused) stopLive();
   R.accMs = activeMs(); R.state = 'reconnecting';
-  stopLive(); updateLiveUI();
+  updateLiveUI();
   showAlert('mic', `Se cortó la captura (${esc(reason)}). Reconectando… Todo lo grabado hasta ahora está a salvo.`, 'warn');
   vibrate([200, 100, 200]);
   const lostAt = Date.now();
@@ -779,12 +803,15 @@ async function recover(reason, reacquire) {
   if (R.userStopping) { R.reconnecting = false; if (R.state === 'idle') releaseStream(); return; }
   attachStream(R.stream);
   R.state = 'recording'; R.resumeAt = performance.now(); R.lastChunkAt = performance.now();
-  startMaster(); startSegment();
+  startMaster();
   addMark(`Captura retomada (corte de ${Math.max(1, Math.round((Date.now() - lostAt) / 1000))} s)`, 'gap');
   R.reconnecting = false;
   clearAlert('mic');
-  if (wasPaused) pauseRecording(); else startLive();
-  updateLiveUI();
+  if (wasPaused) {
+    R.accMs = activeMs(); R.state = 'paused';
+    try { R.master.pause(); } catch { /* ya pausado */ }
+  } else { startSegment(); startLive(); }
+  updateLiveUI(); updateMediaSession();
   toast('Captura retomada. La grabación sigue.');
 }
 
@@ -826,8 +853,8 @@ function tick() {
       if (flat && R.audioCtx?.state === 'running') { if (!R.flatSince) R.flatSince = Date.now(); } else R.flatSince = 0;
     }
   }
-  if (R.state === 'recording' && R.segRec && activeMs() - R.segStartMs >= settings.segSec * 1000) rotateSegment();
-  updateLiveUI();
+  maybeRotate();
+  if (document.visibilityState === 'visible') updateLiveUI();
 }
 function watchdog() {
   if (R.state !== 'recording') return;
@@ -865,7 +892,7 @@ function releaseWake() { try { wake?.release(); } catch { /* ya liberado */ } wa
    Transcripción en vivo (Web Speech, borrador)
    ========================================================= */
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-const L = { rec: null, wanted: false, run: 0, fails: 0, utterStart: null, interim: '' };
+const L = { rec: null, wanted: false, run: 0, fails: 0, utterStart: null, interim: '', interimRun: 0 };
 const liveAvailable = () => !!SR && settings.live && store.get('liveConflict') !== '1';
 function startLive() {
   if (!liveAvailable() || R.state !== 'recording') return;
@@ -880,6 +907,7 @@ function spawnLive() {
   const run = ++L.run;
   L.rec = rec;
   rec.onresult = (e) => {
+    if (!R.session) return;
     let interim = '';
     for (let i = e.resultIndex; i < e.results.length; i++) {
       const r = e.results[i];
@@ -888,6 +916,7 @@ function spawnLive() {
       else interim += r[0].transcript;
     }
     L.fails = 0; clearAlert('liveNet');
+    L.interimRun = run;
     setInterim(interim.trim());
   };
   rec.onerror = (e) => {
@@ -895,23 +924,37 @@ function spawnLive() {
       L.wanted = false;
       if (e.error === 'audio-capture') store.set('liveConflict', '1');
       showAlert('live', 'La transcripción en vivo no está disponible en este dispositivo. La grabación sigue y el texto llega por bloques.', 'warn');
-    } else if (e.error !== 'no-speech' && e.error !== 'aborted') {
+    } else if (e.error !== 'no-speech' && e.error !== 'aborted' && document.visibilityState === 'visible') {
       L.fails += 1;
       if (L.fails >= 6) showAlert('liveNet', 'El borrador en vivo necesita internet. La grabación sigue y se transcribe cuando vuelva la conexión.', 'warn');
     }
   };
   rec.onend = () => {
-    L.rec = null; setInterim('');
-    if (L.wanted && R.state === 'recording') setTimeout(spawnLive, L.fails ? Math.min(500 * 2 ** L.fails, 15000) : 120);
+    if (L.rec === rec) L.rec = null;
+    flushInterim();
+    if (L.wanted && R.state === 'recording' && document.visibilityState === 'visible') setTimeout(spawnLive, L.fails ? Math.min(500 * 2 ** L.fails, 15000) : 120);
   };
   try { rec.start(); } catch { L.rec = null; L.fails += 1; setTimeout(spawnLive, 1500); }
 }
-function stopLive() {
-  L.wanted = false; L.utterStart = null;
-  if (L.rec) { try { L.rec.abort(); } catch { /* ya cerrado */ } L.rec = null; }
+/** Guarda como borrador la frase que se estaba diciendo (nunca se descarta texto). */
+function flushInterim() {
+  const text = L.interim;
+  const ms = L.utterStart;
+  L.interim = ''; L.utterStart = null;
   setInterim('');
+  if (text && R.session) commitLive(text, L.interimRun || L.run, ms ?? Math.round(activeMs()));
+}
+function stopLive() {
+  L.wanted = false;
+  flushInterim();
+  if (L.rec) {
+    // stop() (no abort): el reconocedor entrega el resultado final de lo último dicho.
+    try { L.rec.stop(); } catch { /* ya cerrado */ }
+    L.rec = null;
+  }
 }
 async function commitLive(text, run, ms) {
+  if (!R.session) return;
   const r = C.mergeLiveFinal(R.live, text, ms ?? Math.round(activeMs()), run);
   if (r.op === 'skip') return;
   if (r.op === 'add') {
@@ -1166,6 +1209,7 @@ function appendLine(i) {
   if (stick) scrollLiveToEnd();
 }
 function setInterim(text) {
+  L.interim = text || '';
   const n = $('#interim');
   if (!n) return;
   n.hidden = !text;
@@ -1275,13 +1319,19 @@ async function sessionStatus() {
   for (const g of e) map.set(g.sid, { n: (map.get(g.sid)?.n || 0) + 1, err: (map.get(g.sid)?.err || 0) + 1 });
   return map;
 }
+function queueBadge(st) {
+  if (!settings.token) return '<span class="badge warn">Falta la clave</span>';
+  if (P.blocked) return '<span class="badge warn">Revisar Ajustes</span>';
+  if (!navigator.onLine) return `<span class="badge warn">Sin internet · ${st.n}</span>`;
+  if (st.err) return `<span class="badge warn">Reintentando · ${st.n}</span>`;
+  return `<span class="badge busy">Transcribiendo · ${st.n}</span>`;
+}
 function itemHTML(s, st) {
   const d = new Date(s.createdAt);
   const hora = d.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hour12: false });
   let badge = '';
   if (s.id === R.sid && isActive()) badge = '<span class="badge rec">Grabando</span>';
-  else if (st?.err) badge = '<span class="badge warn">Reintentando</span>';
-  else if (st?.n) badge = `<span class="badge busy">Transcribiendo · ${st.n}</span>`;
+  else if (st?.n) badge = queueBadge(st);
   else if (s.status === 'interrupted') badge = '<span class="badge warn">Recuperada</span>';
   const tags = visibleTags(s);
   return `<li><button class="item" data-open="${esc(s.id)}"><div class="item-top"><div><h3>${esc(s.title)}</h3>
@@ -1374,6 +1424,7 @@ async function renderDetail(sid, soft = false) {
       </div>`}
     </div>
     <div class="sec">
+      ${!recording && !isActive() ? '<button class="btn btn-continue" id="d-continue"><i></i>Seguir grabando en esta reunión</button>' : ''}
       <div class="actions-grid">
         <button class="btn btn-primary" id="d-claude">${ICON.copy}Copiar para Claude</button>
         <button class="btn" id="d-txt" aria-label="Descargar texto">${ICON.text}Texto</button>
@@ -1388,7 +1439,6 @@ async function renderDetail(sid, soft = false) {
     </div>
     <div class="sec more">
       ${errs.length ? '<button class="btn btn-sm" id="d-retry">Reintentar ahora</button>' : ''}
-      ${!recording && !isActive() ? '<button class="btn btn-sm" id="d-continue">Seguir grabando en esta</button>' : ''}
       ${!recording ? '<button class="btn btn-sm" id="d-trash">Mover a papelera</button>' : ''}
     </div>`;
   if (!recording) loadPart(s, D.partIdx);
@@ -1626,10 +1676,77 @@ window.addEventListener('beforeunload', (e) => { if (isActive()) { saveSession()
 window.addEventListener('pagehide', () => { if (isActive()) saveSession(); });
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible') {
-    if (isActive()) { requestWake(); ensureAudioCtx(); if (L.wanted && !L.rec) spawnLive(); if (R.state === 'recording' && C.isStalled(R.lastChunkAt, performance.now(), TIMESLICE)) recover('la app quedó en segundo plano', false); }
+    if (isActive()) {
+      requestWake(); ensureAudioCtx(); updateLiveUI();
+      if (L.wanted && !L.rec) spawnLive();
+      if (R.hiddenAt) setTimeout(checkBackgroundGap, 2600);
+    }
     pumpQueue(); renderSync();
-  } else if (isActive()) saveSession();
+  } else if (isActive()) {
+    flushInterim();
+    if (R.state === 'recording') { R.hiddenAt = Date.now(); R.chunksAtHide = R.masterChunks; }
+    saveSession();
+  }
 });
+/** Al volver: si el sistema congeló la app, avisa, marca el corte y corrige los tiempos. */
+function checkBackgroundGap() {
+  if (!R.hiddenAt || R.state !== 'recording') { R.hiddenAt = 0; return; }
+  const hiddenMs = Date.now() - R.hiddenAt - 2600;
+  const missing = C.backgroundGapMs(hiddenMs, R.masterChunks - R.chunksAtHide, TIMESLICE);
+  R.hiddenAt = 0;
+  if (missing) {
+    R.accMs = activeMs() - missing; R.resumeAt = performance.now();
+    addMark(`El teléfono pausó la app en segundo plano (~${Math.round(missing / 1000)} s sin audio)`, 'gap');
+    showAlert('bg', 'El teléfono frenó la app mientras estaba en segundo plano. Para que no pase: Ajustes del teléfono › Apps › Chrome › Batería › Sin restricciones.', 'bad');
+    if (C.isStalled(R.lastChunkAt, performance.now(), TIMESLICE)) recover('la app quedó congelada', false);
+  } else if (hiddenMs > 20000) {
+    toast(`Siguió grabando en segundo plano (${C.formatDuration(hiddenMs)})`);
+  }
+}
+
+/* ---------- Control desde la notificación del sistema (Media Session) ---------- */
+const BG = { audio: null, url: null };
+function silentWavUrl(seconds = 10, rate = 8000) {
+  const n = seconds * rate, buf = new ArrayBuffer(44 + n), v = new DataView(buf);
+  const w = (o, str) => { for (let i = 0; i < str.length; i++) v.setUint8(o + i, str.charCodeAt(i)); };
+  w(0, 'RIFF'); v.setUint32(4, 36 + n, true); w(8, 'WAVE'); w(12, 'fmt ');
+  v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+  v.setUint32(24, rate, true); v.setUint32(28, rate, true); v.setUint16(32, 1, true); v.setUint16(34, 8, true);
+  w(36, 'data'); v.setUint32(40, n, true); new Uint8Array(buf, 44).fill(128);
+  return URL.createObjectURL(new Blob([buf], { type: 'audio/wav' }));
+}
+function startBackground() {
+  if (!('mediaSession' in navigator) || !window.MediaMetadata) return;
+  try {
+    if (!BG.audio) { BG.url = silentWavUrl(); BG.audio = new Audio(BG.url); BG.audio.loop = true; }
+    BG.audio.play().catch(() => {});
+    navigator.mediaSession.setActionHandler('pause', () => pauseRecording());
+    navigator.mediaSession.setActionHandler('play', () => resumeRecording());
+    updateMediaSession();
+  } catch { /* sin notificación: la grabación sigue igual */ }
+}
+function updateMediaSession() {
+  if (!BG.audio || !('mediaSession' in navigator) || !R.session) return;
+  try {
+    navigator.mediaSession.metadata = new MediaMetadata({
+      title: R.state === 'paused' ? 'Acta · En pausa' : 'Acta · Grabando',
+      artist: R.session.title,
+      artwork: [{ src: 'icon-512.png', sizes: '512x512', type: 'image/png' }],
+    });
+    navigator.mediaSession.playbackState = R.state === 'paused' ? 'paused' : 'playing';
+  } catch { /* opcional */ }
+}
+function stopBackground() {
+  try {
+    BG.audio?.pause();
+    if ('mediaSession' in navigator) {
+      navigator.mediaSession.metadata = null;
+      navigator.mediaSession.playbackState = 'none';
+      navigator.mediaSession.setActionHandler('pause', null);
+      navigator.mediaSession.setActionHandler('play', null);
+    }
+  } catch { /* opcional */ }
+}
 window.addEventListener('online', () => { clearAlert('liveNet'); pumpQueue(); renderHealth(); });
 window.addEventListener('offline', () => { renderSync(); renderHealth(); });
 navigator.getBattery?.().then((b) => {

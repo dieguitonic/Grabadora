@@ -68,11 +68,22 @@ ESTRUCTURA
      en algunos Android: la app prioriza el audio y el texto llega por bloques cada 2 minutos.
 
 6) DURANTE UNA REUNION DE 3 O 4 HORAS
-  - Cargador conectado (con pantalla encendida, 4 h consumen bastante batería).
-  - Usá el botón de la luna para atenuar la pantalla (negro total, ahorra batería en OLED).
-  - No cambies de app durante mucho tiempo: Android puede pausar el borrador en vivo.
-    La grabación de audio suele seguir; si se corta, la app lo detecta, reconecta y deja una marca
-    con los segundos perdidos.
+  - Cargador conectado.
+  - SEGUNDO PLANO EN ANDROID: podés bloquear el teléfono o cambiar de app y el audio sigue
+    grabándose. Vas a ver una notificación "Acta · Grabando" con botón de pausa/continuar.
+    El borrador en vivo se frena mientras no la mirás y se retoma al volver; el texto final
+    se completa igual con el audio.
+  - Al volver a la app te avisa "Siguió grabando en segundo plano". Si el teléfono la frenó,
+    te avisa, marca los segundos perdidos y sigue sola.
+  - Para que Android no la frene: Ajustes del teléfono > Apps > Chrome > Batería >
+    Sin restricciones. En Samsung, además: Batería > Límites de uso en segundo plano >
+    sacar Chrome de "apps en suspensión".
+  - NO deslices la app para cerrarla desde "recientes": eso la cierra del todo. Lo grabado
+    queda a salvo y al abrirla te ofrece "Seguir grabando", pero no graba mientras está cerrada.
+  - PC: instalala (botón Instalar o el ícono de instalar en la barra de Chrome/Edge). Queda
+    en su propia ventana; podés minimizarla o usar otras ventanas y sigue grabando.
+  - Pausar guarda lo último que se estaba diciendo y manda ese bloque a transcribir enseguida.
+  - Podés continuar una reunión ya terminada todas las veces que quieras (cada vez suma una parte).
   - Espacio: unos 58 MB de audio por cada 4 h (más una copia de respaldo del mismo tamaño).
 
 7) PRUEBAS LOCALES (opcional, en la PC)
@@ -102,5 +113,5 @@ CAPAS DE PROTECCION CONTRA PERDIDAS (resumen)
 
 PENDIENTES DE CONFIRMAR
   - Probar en TU modelo de Android si permite borrador en vivo y grabación a la vez.
-  - Probar si la grabación sigue con la pantalla apagada en tu teléfono (depende del fabricante).
+  - Probar en tu teléfono 10 minutos con la pantalla bloqueada (depende del fabricante).
   - En iPhone: Safari corta la grabación al bloquear la pantalla; usar con pantalla encendida.
