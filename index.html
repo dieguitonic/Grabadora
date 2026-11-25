@@ -322,9 +322,9 @@ dialog::backdrop{background:rgba(16,17,20,.45)}
       <div class="row2">
         <label class="field"><span>Idioma</span>
           <select class="input" name="lang">
-            <option value="es-AR">Español (Argentina)</option><option value="es-ES">Español (España)</option>
-            <option value="es-MX">Español (México)</option><option value="en-US">Inglés (EE. UU.)</option>
-            <option value="pt-BR">Portugués (Brasil)</option>
+            <option value="es-AR">Español (AR)</option><option value="es-ES">Español (ES)</option>
+            <option value="es-MX">Español (MX)</option><option value="en-US">Inglés (EE. UU.)</option>
+            <option value="pt-BR">Portugués (BR)</option>
           </select>
         </label>
         <label class="field"><span>Bloques de</span>
@@ -334,6 +334,18 @@ dialog::backdrop{background:rgba(16,17,20,.45)}
           </select>
         </label>
       </div>
+      <label class="field"><span>Micrófono</span>
+        <select class="input" name="micMode">
+          <option value="natural">Natural (recomendado)</option>
+          <option value="filtro">Con filtro de ruido (modo llamada)</option>
+        </select>
+      </label>
+      <button class="btn" type="button" id="btn-mictest">Probar micrófono (6 s)</button>
+      <div id="mictest-out" hidden>
+        <p class="help" id="mictest-msg" role="status"></p>
+        <audio id="mictest-audio" controls style="width:100%;margin-top:8px" hidden></audio>
+      </div>
+      <p class="help">“Natural” graba como una grabadora de voz, ideal para reuniones. El filtro es el modo llamada: puede recortar las voces lejanas.</p>
       <label class="field"><span>Calidad de audio</span>
         <select class="input" name="bitrate">
           <option value="24000">Ahorro (≈ 43 MB por 4 h)</option>
@@ -420,7 +432,14 @@ const store = {
   set(k, v) { try { localStorage.setItem('acta.' + k, v); } catch { /* modo privado */ } },
   del(k) { try { localStorage.removeItem('acta.' + k); } catch { /* modo privado */ } },
 };
-let settings = (() => { try { return C.normalizeSettings(JSON.parse(store.get('settings') || '{}')); } catch { return C.normalizeSettings({}); } })();
+const IS_ANDROID = /Android/i.test(navigator.userAgent);
+let settings = (() => {
+  let raw = null;
+  try { raw = JSON.parse(store.get('settings') || 'null'); } catch { raw = null; }
+  const s = C.migrateSettings(raw, IS_ANDROID);
+  store.set('settings', JSON.stringify(s));
+  return s;
+})();
 function saveSettings(s) { settings = C.normalizeSettings(s); store.set('settings', JSON.stringify(settings)); }
 const tagRules = () => [...C.TAG_RULES, ...C.parseCustomTags(settings.customTags)];
 
@@ -532,7 +551,7 @@ const R = {
   master: null, seg: null, segRec: null, segIdx: -1, segStartMs: 0, masterPart: -1,
   accMs: 0, resumeAt: 0, lastChunkAt: 0, lastSavedAt: 0, bytes: 0,
   live: [], marks: [], doneSegs: [],
-  audioCtx: null, analyser: null, srcNode: null, abuf: null, level: 0, segMax: 0,
+  audioCtx: null, analyser: null, srcNode: null, abuf: null, level: 0, segMax: 0, analyserOk: false,
   flatSince: 0, lastFlatAction: 0, reconnecting: false, userStopping: false, timers: [], wakeOk: false,
   masterChunks: 0, hiddenAt: 0, chunksAtHide: 0,
 };
@@ -540,9 +559,7 @@ const activeMs = () => R.accMs + (R.state === 'recording' ? performance.now() - 
 const isActive = () => ['recording', 'paused', 'reconnecting'].includes(R.state);
 
 function getMic() {
-  return navigator.mediaDevices.getUserMedia({
-    audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 },
-  });
+  return navigator.mediaDevices.getUserMedia({ audio: C.micConstraints(settings.micMode) });
 }
 function micErrorText(err) {
   if (err?.name === 'NotAllowedError') return 'No hay permiso para usar el micrófono. Habilitalo en los permisos del sitio (candado de la barra de direcciones).';
@@ -569,8 +586,8 @@ function ensureAudioCtx() {
     if (!AC) return;
     R.audioCtx = new AC();
     R.analyser = R.audioCtx.createAnalyser();
-    R.analyser.fftSize = 1024;
-    R.abuf = new Uint8Array(R.analyser.fftSize);
+    R.analyser.fftSize = 32768; // ~0,7 s de audio: no se pierden sonidos cortos entre lecturas
+    R.abuf = new Float32Array(R.analyser.fftSize);
   }
   if (R.audioCtx.state === 'suspended') R.audioCtx.resume().catch(() => {});
 }
@@ -709,7 +726,7 @@ async function startRecording(resume) {
     };
     R.accMs = 0; R.live = []; R.marks = []; R.doneSegs = []; R.segIdx = -1; R.masterPart = -1;
   }
-  R.sid = R.session.id; R.bytes = 0; R.userStopping = false; R.masterChunks = 0; R.hiddenAt = 0;
+  R.sid = R.session.id; R.bytes = 0; R.userStopping = false; R.masterChunks = 0; R.hiddenAt = 0; R.analyserOk = false; R.flatSince = 0;
   R.state = 'recording'; R.resumeAt = performance.now(); R.lastChunkAt = performance.now(); R.lastSavedAt = Date.now();
   R.session.endedAt = null;
   await saveSession(true);
@@ -845,11 +862,12 @@ function startTimers() {
 function stopTimers() { R.timers.forEach(clearInterval); R.timers = []; }
 function tick() {
   if (R.analyser && R.abuf) {
-    R.analyser.getByteTimeDomainData(R.abuf);
-    const { rms, flat } = C.analyzeLevel(R.abuf);
+    R.analyser.getFloatTimeDomainData(R.abuf);
+    const { rms, peak, flat } = C.analyzeFloat(R.abuf);
     R.level = rms;
     if (R.state === 'recording') {
-      R.segMax = Math.max(R.segMax, rms);
+      R.segMax = Math.max(R.segMax, peak);
+      if (!flat) R.analyserOk = true;
       if (flat && R.audioCtx?.state === 'running') { if (!R.flatSince) R.flatSince = Date.now(); } else R.flatSince = 0;
     }
   }
@@ -860,7 +878,8 @@ function watchdog() {
   if (R.state !== 'recording') return;
   if (C.isStalled(R.lastChunkAt, performance.now(), TIMESLICE)) { recover('el grabador dejó de responder', false); return; }
   if (R.audioCtx?.state === 'suspended') R.audioCtx.resume().catch(() => {});
-  if (R.flatSince && Date.now() - R.flatSince > 8000) {
+  // Solo se actúa si el medidor ya demostró que funciona en esta sesión (nunca por una lectura dudosa).
+  if (R.flatSince && R.analyserOk && Date.now() - R.flatSince > 8000) {
     R.flatSince = 0;
     if (L.wanted) {
       // El reconocimiento de voz le quitó el micrófono al grabador: se prioriza la grabación.
@@ -1002,7 +1021,6 @@ async function transcribeSegment(seg) {
   const save = async () => { await dbPut('segments', seg); onSegmentChange(seg); };
   const rows = await dbAll('chunks', 'track', IDBKeyRange.only([seg.sid, 's', seg.idx]));
   if (!rows.length) { Object.assign(seg, { status: 'done', result: [], note: 'sin audio' }); await save(); return true; }
-  if ((seg.maxLevel || 0) < C.SILENCE_RMS) { Object.assign(seg, { status: 'done', result: [], note: 'silencio' }); await save(); return true; }
   const type = (seg.mime || 'audio/webm').split(';')[0];
   const blob = new Blob(rows.map((r) => r.buf), { type });
   if (blob.size > 4300000) { Object.assign(seg, { status: 'error', error: 'Bloque demasiado grande para el servidor', nextTry: Date.now() + 864e5 }); await save(); return true; }
@@ -1090,7 +1108,7 @@ async function recoverInterrupted() {
     const segs = await dbAll('segments', 'sid', s.id);
     for (const g of segs) {
       if (g.status === 'recording' || g.status === 'closing') {
-        g.status = 'pending'; g.endMs = g.endMs ?? s.durationMs; g.maxLevel = Math.max(g.maxLevel || 0, C.SILENCE_RMS);
+        g.status = 'pending'; g.endMs = g.endMs ?? s.durationMs;
         await dbPut('segments', g, undefined, true);
       }
     }
@@ -1596,7 +1614,9 @@ function renderSettings() {
   f.endpoint.value = settings.endpoint; f.token.value = settings.token; f.lang.value = settings.lang;
   f.segSec.value = String(settings.segSec); f.bitrate.value = String(settings.bitrate); f.live.checked = settings.live;
   f.customTags.value = settings.customTags;
+  f.micMode.value = settings.micMode;
   $('#live-help').innerHTML = !SR ? 'Este navegador no ofrece reconocimiento de voz en vivo.'
+    : IS_ANDROID && store.get('liveConflict') !== '1' ? 'En Android conviene dejarla apagada: el borrador en vivo le quita el micrófono a la grabación y el audio sale entrecortado. Con bloques de 1 minuto el texto llega casi en vivo igual.'
     : store.get('liveConflict') === '1' ? 'Se apagó sola porque tu teléfono no deja grabar y transcribir en vivo a la vez. <button class="btn btn-sm" type="button" id="btn-reset-live">Probar de nuevo</button>' : '';
   $('#btn-reset-live')?.addEventListener('click', () => { store.del('liveConflict'); renderSettings(); toast('Se va a probar en la próxima grabación.'); });
   renderStorage();
@@ -1614,9 +1634,35 @@ async function renderStorage() {
 $('#settings-form').addEventListener('submit', (e) => {
   e.preventDefault();
   const f = e.currentTarget.elements;
-  saveSettings({ endpoint: f.endpoint.value, token: f.token.value, lang: f.lang.value, segSec: f.segSec.value, bitrate: f.bitrate.value, live: f.live.checked, customTags: f.customTags.value });
+  saveSettings({ endpoint: f.endpoint.value, token: f.token.value, lang: f.lang.value, segSec: f.segSec.value, bitrate: f.bitrate.value, live: f.live.checked, micMode: f.micMode.value, customTags: f.customTags.value });
   P.blocked = '';
   toast('Ajustes guardados'); renderHealth(); renderSync(); pumpQueue();
+});
+/* Prueba de micrófono: graba 6 s con el modo elegido y lo reproduce. */
+$('#btn-mictest').addEventListener('click', async (e) => {
+  const btn = e.currentTarget, out = $('#mictest-out'), msg = $('#mictest-msg'), au = $('#mictest-audio');
+  if (isActive()) { toast('Terminá la grabación en curso para probar el micrófono.'); return; }
+  const mode = $('#settings-form').elements.micMode.value;
+  out.hidden = false; au.hidden = true; btn.disabled = true;
+  let stream;
+  try { stream = await navigator.mediaDevices.getUserMedia({ audio: C.micConstraints(mode) }); }
+  catch (err) { msg.textContent = micErrorText(err); btn.disabled = false; return; }
+  const mime = C.pickMimeType((t) => MediaRecorder.isTypeSupported(t));
+  const mr = new MediaRecorder(stream, mime ? { mimeType: mime, audioBitsPerSecond: settings.bitrate } : { audioBitsPerSecond: settings.bitrate });
+  const parts = [];
+  mr.ondataavailable = (ev) => { if (ev.data.size) parts.push(ev.data); };
+  mr.onstop = () => {
+    stream.getTracks().forEach((t) => t.stop());
+    if (au.src) URL.revokeObjectURL(au.src);
+    au.src = URL.createObjectURL(new Blob(parts, { type: (mime || 'audio/webm').split(';')[0] }));
+    au.hidden = false; btn.disabled = false;
+    msg.textContent = 'Escuchá la prueba. Si suena bien, guardá los ajustes.';
+    au.play().catch(() => {});
+  };
+  mr.start();
+  let n = 6;
+  msg.textContent = `Grabando ${n} s… hablá como en una reunión, a un metro del teléfono.`;
+  const t = setInterval(() => { n -= 1; if (n > 0) msg.textContent = `Grabando ${n} s… hablá como en una reunión, a un metro del teléfono.`; else { clearInterval(t); mr.stop(); } }, 1000);
 });
 $('#btn-test').addEventListener('click', async () => {
   const f = $('#settings-form').elements, out = $('#test-out');

@@ -1,13 +1,16 @@
 // core.js — Lógica pura de Acta (sin DOM, sin red). Testeada con node --test.
 
 /* ---------- Configuración ---------- */
+export const SETTINGS_VERSION = 2;
 export const DEFAULT_SETTINGS = Object.freeze({
+  v: SETTINGS_VERSION,
   endpoint: '/api/transcribe',
   token: '',
   lang: 'es-AR',
   live: true,
-  segSec: 120,
+  segSec: 60,
   bitrate: 32000,
+  micMode: 'natural',
   customTags: '',
 });
 
@@ -22,7 +25,32 @@ export function normalizeSettings(raw) {
   s.segSec = clamp(Math.round(Number(s.segSec) || DEFAULT_SETTINGS.segSec), 20, 480);
   s.bitrate = [24000, 32000, 48000, 64000].includes(Number(s.bitrate)) ? Number(s.bitrate) : 32000;
   s.customTags = String(s.customTags || '');
+  s.micMode = s.micMode === 'filtro' ? 'filtro' : 'natural';
+  s.v = SETTINGS_VERSION;
   return s;
+}
+
+/**
+ * Ajustes guardados por versiones anteriores -> versión actual.
+ * v2: micrófono natural (sin modo llamada), bloques de 1 min y, en Android,
+ * borrador en vivo apagado (le quita el micrófono a la grabación).
+ */
+export function migrateSettings(raw, isAndroid) {
+  const r = raw && typeof raw === 'object' ? { ...raw } : {};
+  const fresh = !raw || typeof raw !== 'object' || !Object.keys(raw).length;
+  if (fresh) return normalizeSettings({ live: !isAndroid });
+  if (r.v !== SETTINGS_VERSION) {
+    r.micMode = 'natural';
+    if (!r.segSec || Number(r.segSec) === 120) r.segSec = 60;
+    if (isAndroid) r.live = false;
+  }
+  return normalizeSettings(r);
+}
+
+/** Restricciones del micrófono. "natural" = como una grabadora; "filtro" = modo llamada. */
+export function micConstraints(mode) {
+  const on = mode === 'filtro';
+  return { echoCancellation: on, noiseSuppression: on, autoGainControl: on, channelCount: 1 };
 }
 
 /** Idioma ISO-639-1 para Whisper ("es-AR" -> "es"). */
@@ -80,18 +108,22 @@ export function isStalled(lastChunkAt, now, timesliceMs) {
   return now - lastChunkAt > timesliceMs * 3 + 2000;
 }
 
-/** Nivel RMS (0..1) y si la señal es silencio digital absoluto (micrófono tomado por otro proceso). */
-export function analyzeLevel(bytes) {
-  let sum = 0, flat = true;
-  for (let i = 0; i < bytes.length; i++) {
-    const v = (bytes[i] - 128) / 128;
-    if (bytes[i] !== 128) flat = false;
-    sum += v * v;
+/**
+ * Nivel de la señal con precisión completa (Float32).
+ * rms: de las últimas `tail` muestras (para el medidor); peak: máximo de toda la ventana;
+ * flat: ceros absolutos en toda la ventana (sin datos del micrófono).
+ */
+export function analyzeFloat(buf, tail = 2048) {
+  let peak = 0, sum = 0;
+  const from = Math.max(0, buf.length - tail);
+  for (let i = 0; i < buf.length; i++) {
+    const a = Math.abs(buf[i]);
+    if (a > peak) peak = a;
+    if (i >= from) sum += buf[i] * buf[i];
   }
-  return { rms: bytes.length ? Math.sqrt(sum / bytes.length) : 0, flat };
+  const n = buf.length - from;
+  return { rms: n ? Math.sqrt(sum / n) : 0, peak, flat: peak === 0 };
 }
-
-export const SILENCE_RMS = 0.004;
 
 /**
  * Tras volver de segundo plano: ¿cuánto audio falta? (ms). Compara el tiempo real que pasó

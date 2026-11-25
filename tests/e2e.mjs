@@ -275,6 +275,42 @@ await step('PC', async () => {
   await pp.screenshot({ path: `${OUT}/06-historial-1440.png`, fullPage: true });
 });
 
+/* =========================================================
+   C) ANDROID con ajustes de la versión anterior: micrófono natural y sin vivo
+   ========================================================= */
+const droid = await browser.newContext({
+  viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, permissions: ['microphone'],
+  userAgent: 'Mozilla/5.0 (Linux; Android 14; SM-A546E) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36',
+});
+await droid.addInitScript(FAKE_SR);
+await droid.addInitScript(() => {
+  window.__gum = [];
+  const orig = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+  navigator.mediaDevices.getUserMedia = (c) => { window.__gum.push(c); return orig(c); };
+});
+const dp = await droid.newPage(); watch(dp);
+await dp.goto(BASE);
+await dp.evaluate(() => localStorage.setItem('acta.settings', JSON.stringify({ token: 'test-token', live: true, segSec: 120 })));
+await dp.reload();
+await step('Android', async () => {
+  const st = await dp.evaluate(() => JSON.parse(localStorage.getItem('acta.settings')));
+  check('Android: los ajustes viejos se actualizan (vivo apagado, mic natural, bloques 1 min)', st.live === false && st.micMode === 'natural' && st.segSec === 60 && st.token === 'test-token', JSON.stringify({ live: st.live, mic: st.micMode, seg: st.segSec }));
+  await dp.tap('#btn-start');
+  await dp.waitForSelector('#live:not([hidden])');
+  await dp.waitForTimeout(3000);
+  const c = await dp.evaluate(() => window.__gum.at(-1).audio);
+  check('Android: el micrófono se abre sin modo llamada', c.echoCancellation === false && c.noiseSuppression === false && c.autoGainControl === false, JSON.stringify(c));
+  check('Android: el medidor de nivel recibe la señal del micrófono natural', await dp.evaluate(() => window.__acta.R.analyserOk === true));
+  check('Android: no usa el reconocimiento en vivo durante la grabación', await dp.evaluate(() => !window.__acta.R.state || !document.querySelector('#interim') || document.querySelector('#interim').hidden));
+  await stopRec(dp);
+  await dp.tap('.tab[data-go="settings"]');
+  await dp.tap('#btn-mictest');
+  await dp.waitForSelector('#mictest-audio:not([hidden])', { timeout: 12000 });
+  const d = await dp.evaluate(() => new Promise((res) => { const a = document.querySelector('#mictest-audio'); if (a.duration > 0 && a.duration !== Infinity) res(a.duration); else { a.currentTime = 1e9; a.addEventListener('durationchange', () => res(a.duration), { once: true }); setTimeout(() => res(a.duration), 3000); } }));
+  check('Prueba de micrófono: graba y se puede escuchar', d > 4, `${Math.round(d)} s`);
+  await dp.screenshot({ path: `${OUT}/07-ajustes-android.png`, fullPage: true });
+});
+
 const bad = await fetch(BASE + 'api/transcribe', { headers: { 'x-app-token': 'mala' } });
 check('La API rechaza una clave incorrecta (401)', bad.status === 401);
 const relevant = errors.filter((e) => !/speech|recognition/i.test(e));

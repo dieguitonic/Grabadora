@@ -64,8 +64,11 @@ ESTRUCTURA
   e. Modo avión 1 minuto mientras graba: la grabación sigue; el texto final llega al volver.
   f. Terminá. En el detalle: escuchá el audio, tocá una línea para saltar a ese momento,
      probá "Copiar para Claude" y pegalo en Claude.
-  g. Si el aviso dice "Tu teléfono no permite grabar y transcribir en vivo a la vez", es normal
-     en algunos Android: la app prioriza el audio y el texto llega por bloques cada 2 minutos.
+  g. MICROFONO: Ajustes > Probar micrófono. Hablá a un metro del teléfono y escuchá la prueba.
+     Debe sonar como una nota de voz de WhatsApp. "Natural" es el modo recomendado; "Con filtro"
+     es el modo llamada (recorta voces lejanas).
+  h. En Android la transcripción en vivo viene apagada a propósito: le quita el micrófono a la
+     grabación y el audio sale entrecortado. El texto llega por bloques de 1 minuto.
 
 6) DURANTE UNA REUNION DE 3 O 4 HORAS
   - Cargador conectado.

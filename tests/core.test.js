@@ -16,6 +16,7 @@ test('normalizeSettings acota valores', () => {
   assert.equal(s.lang, 'es-AR');
   assert.equal(s.live, false);
   assert.equal(C.normalizeSettings(null).endpoint, '/api/transcribe');
+  assert.equal(C.normalizeSettings({ micMode: 'raro' }).micMode, 'natural');
   assert.equal(C.whisperLang('es-AR'), 'es');
 });
 
@@ -37,12 +38,15 @@ test('isStalled', () => {
   assert.equal(C.isStalled(0, 8001, 2000), true);
 });
 
-test('analyzeLevel detecta silencio digital', () => {
-  assert.equal(C.analyzeLevel(new Uint8Array(64).fill(128)).flat, true);
-  const noisy = new Uint8Array(64).fill(128); noisy[3] = 140;
-  const r = C.analyzeLevel(noisy);
+test('analyzeFloat: detecta voz muy baja que en 8 bits se veía como silencio', () => {
+  const quiet = new Float32Array(4096).map((_, i) => 0.002 * Math.sin(i / 7));
+  const r = C.analyzeFloat(quiet);
   assert.equal(r.flat, false);
-  assert.ok(r.rms > 0);
+  assert.ok(r.peak > 0.0015 && r.rms > 0.001);
+  assert.equal(C.analyzeFloat(new Float32Array(4096)).flat, true);
+  const beep = new Float32Array(4096); beep[10] = 0.5;
+  const b = C.analyzeFloat(beep, 2048);
+  assert.equal(b.peak, 0.5); assert.equal(b.rms, 0); assert.equal(b.flat, false);
 });
 
 test('mergeLiveFinal corrige duplicados acumulados de Android', () => {
@@ -143,4 +147,22 @@ test('backgroundGapMs detecta audio faltante en segundo plano', () => {
   assert.equal(C.backgroundGapMs(60000, 29, 2000), 0);
   assert.equal(C.backgroundGapMs(60000, 5, 2000), 50000);
   assert.equal(C.backgroundGapMs(3000, 0, 2000), 0);
+});
+
+test('migrateSettings: pasa a micrófono natural y apaga el vivo en Android', () => {
+  const old = { token: 'x', live: true, segSec: 120 };
+  const a = C.migrateSettings(old, true);
+  assert.equal(a.token, 'x'); assert.equal(a.live, false); assert.equal(a.micMode, 'natural'); assert.equal(a.segSec, 60); assert.equal(a.v, 2);
+  const pc = C.migrateSettings(old, false);
+  assert.equal(pc.live, true);
+  assert.equal(C.migrateSettings(null, true).live, false);
+  assert.equal(C.migrateSettings({}, false).live, true);
+  // Una vez migrado, se respeta lo que elija el usuario
+  assert.equal(C.migrateSettings({ ...a, live: true }, true).live, true);
+  assert.equal(C.migrateSettings({ ...a, segSec: 180 }, true).segSec, 180);
+});
+
+test('micConstraints: natural sin procesamiento de llamada', () => {
+  assert.deepEqual(C.micConstraints('natural'), { echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 1 });
+  assert.equal(C.micConstraints('filtro').echoCancellation, true);
 });

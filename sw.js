@@ -1,6 +1,6 @@
 // Service worker: la app abre sin internet. Primero red (con límite de 3 s), si no, copia guardada.
 // La API nunca pasa por la caché.
-const CACHE = 'acta-v1';
+const CACHE = 'acta-v2';
 const SHELL = ['./', './index.html', './core.js', './manifest.webmanifest', './icon.svg', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', (e) => {
