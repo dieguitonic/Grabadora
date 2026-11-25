@@ -12,6 +12,9 @@ test('formatDuration', () => {
 test('normalizeSettings acota valores', () => {
   const s = C.normalizeSettings({ segSec: 5, bitrate: 999, lang: 'xx_bad', live: false });
   assert.equal(s.segSec, 20);
+  assert.equal(C.normalizeSettings({ segSec: 0 }).segSec, 0);
+  assert.equal(C.normalizeSettings({ segSec: 25 }).segSec, 25);
+  assert.equal(C.normalizeSettings({ segSec: 600 }).segSec, 480);
   assert.equal(s.bitrate, 32000);
   assert.equal(s.lang, 'es-AR');
   assert.equal(s.live, false);
@@ -152,7 +155,7 @@ test('backgroundGapMs detecta audio faltante en segundo plano', () => {
 test('migrateSettings: pasa a micrófono natural y apaga el vivo en Android', () => {
   const old = { token: 'x', live: true, segSec: 120 };
   const a = C.migrateSettings(old, true);
-  assert.equal(a.token, 'x'); assert.equal(a.live, false); assert.equal(a.micMode, 'natural'); assert.equal(a.segSec, 60); assert.equal(a.v, 2);
+  assert.equal(a.token, 'x'); assert.equal(a.live, false); assert.equal(a.micMode, 'natural'); assert.equal(a.segSec, 0); assert.equal(a.v, 3);
   const pc = C.migrateSettings(old, false);
   assert.equal(pc.live, true);
   assert.equal(C.migrateSettings(null, true).live, false);
@@ -165,4 +168,29 @@ test('migrateSettings: pasa a micrófono natural y apaga el vivo en Android', ()
 test('micConstraints: natural sin procesamiento de llamada', () => {
   assert.deepEqual(C.micConstraints('natural'), { echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 1 });
   assert.equal(C.micConstraints('filtro').echoCancellation, true);
+});
+
+test('migrateSettings v2 -> v3: bloques automáticos sin tocar la clave ni el vivo elegido', () => {
+  const v2 = { v: 2, token: 'k', live: true, segSec: 60, micMode: 'filtro' };
+  const r = C.migrateSettings(v2, true);
+  assert.equal(r.segSec, 0); assert.equal(r.token, 'k'); assert.equal(r.live, true); assert.equal(r.micMode, 'filtro');
+  assert.equal(C.migrateSettings({ v: 2, segSec: 300 }, false).segSec, 300);
+});
+
+test('shouldRotate: corta en pausas entre 8 y 20 s, o fijo', () => {
+  assert.equal(C.shouldRotate({ lenMs: 5000, quietMs: 2000, segSec: 0 }), false);
+  assert.equal(C.shouldRotate({ lenMs: 9000, quietMs: 100, segSec: 0 }), false);
+  assert.equal(C.shouldRotate({ lenMs: 9000, quietMs: 500, segSec: 0 }), true);
+  assert.equal(C.shouldRotate({ lenMs: 20000, quietMs: 0, segSec: 0 }), true);
+  assert.equal(C.shouldRotate({ lenMs: 59000, quietMs: 5000, segSec: 60 }), false);
+  assert.equal(C.shouldRotate({ lenMs: 60000, quietMs: 0, segSec: 60 }), true);
+});
+
+test('piso de ruido y pausas', () => {
+  let f = 0;
+  for (const r of [0.05, 0.002, 0.06, 0.07, 0.002]) f = C.updateNoiseFloor(f, r);
+  assert.ok(f < 0.003);
+  assert.equal(C.isQuiet(0.003, 0.002), true);
+  assert.equal(C.isQuiet(0.05, 0.002), false);
+  assert.equal(C.isQuiet(0.003, 0), true);
 });

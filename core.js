@@ -1,14 +1,14 @@
 // core.js — Lógica pura de Acta (sin DOM, sin red). Testeada con node --test.
 
 /* ---------- Configuración ---------- */
-export const SETTINGS_VERSION = 2;
+export const SETTINGS_VERSION = 3;
 export const DEFAULT_SETTINGS = Object.freeze({
   v: SETTINGS_VERSION,
   endpoint: '/api/transcribe',
   token: '',
   lang: 'es-AR',
   live: true,
-  segSec: 60,
+  segSec: 0, // 0 = automático: bloques cortos cortados en pausas (texto casi en vivo)
   bitrate: 32000,
   micMode: 'natural',
   customTags: '',
@@ -22,7 +22,8 @@ export function normalizeSettings(raw) {
   s.token = String(s.token || '').trim();
   s.lang = /^[a-z]{2}(-[A-Z]{2})?$/.test(s.lang) ? s.lang : DEFAULT_SETTINGS.lang;
   s.live = s.live !== false;
-  s.segSec = clamp(Math.round(Number(s.segSec) || DEFAULT_SETTINGS.segSec), 20, 480);
+  const seg = Math.round(Number(s.segSec) || 0);
+  s.segSec = seg <= 0 ? 0 : clamp(seg, 20, 480);
   s.bitrate = [24000, 32000, 48000, 64000].includes(Number(s.bitrate)) ? Number(s.bitrate) : 32000;
   s.customTags = String(s.customTags || '');
   s.micMode = s.micMode === 'filtro' ? 'filtro' : 'natural';
@@ -39,12 +40,34 @@ export function migrateSettings(raw, isAndroid) {
   const r = raw && typeof raw === 'object' ? { ...raw } : {};
   const fresh = !raw || typeof raw !== 'object' || !Object.keys(raw).length;
   if (fresh) return normalizeSettings({ live: !isAndroid });
-  if (r.v !== SETTINGS_VERSION) {
+  const v = Number(r.v) || 1;
+  if (v < 2) {
     r.micMode = 'natural';
-    if (!r.segSec || Number(r.segSec) === 120) r.segSec = 60;
     if (isAndroid) r.live = false;
   }
+  if (v < 3 && (!r.segSec || Number(r.segSec) <= 120)) r.segSec = 0; // v3: bloques automáticos
   return normalizeSettings(r);
+}
+
+/* ---------- Bloques automáticos (texto casi en vivo) ---------- */
+export const AUTO_BLOCK = Object.freeze({ minMs: 8000, maxMs: 20000, quietMs: 450 });
+
+/** Piso de ruido: baja rápido, sube muy despacio (se adapta a la sala). */
+export function updateNoiseFloor(floor, rms) {
+  if (!(floor > 0)) return Math.max(rms, 1e-5);
+  return rms < floor ? rms : floor + (rms - floor) * 0.02;
+}
+
+/** ¿El nivel actual es una pausa entre frases? */
+export const isQuiet = (rms, floor) => rms < Math.max(floor * 2.5, 0.004);
+
+/**
+ * ¿Cortar el bloque ahora? Fijo: al cumplir segSec. Automático: en la primera pausa
+ * después de minMs, o sí o sí al llegar a maxMs.
+ */
+export function shouldRotate({ lenMs, quietMs, segSec }) {
+  if (segSec > 0) return lenMs >= segSec * 1000;
+  return lenMs >= AUTO_BLOCK.maxMs || (lenMs >= AUTO_BLOCK.minMs && quietMs >= AUTO_BLOCK.quietMs);
 }
 
 /** Restricciones del micrófono. "natural" = como una grabadora; "filtro" = modo llamada. */

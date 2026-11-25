@@ -91,6 +91,22 @@ ESTRUCTURA
   - Podés continuar una reunión ya terminada todas las veces que quieras (cada vez suma una parte).
   - Espacio: unos 58 MB de audio por cada 4 h (más una copia de respaldo del mismo tamaño).
 
+6b) SUBDOMINIO PROPIO (dominio comprado en Cloudflare)
+  La app sigue alojada en Vercel (ahí corre la función de transcripción). Cloudflare solo
+  apunta el subdominio. No hay que cambiar código.
+  1. Vercel > proyecto grabadora > Settings > Domains > Add > grabadora.TUDOMINIO.com
+  2. Vercel muestra un registro CNAME. Copiá el destino EXACTO que indique.
+  3. Cloudflare > tu dominio > DNS > Records > Add record:
+       Type: CNAME   Name: grabadora   Target: (el de Vercel)   Proxy status: DNS only (nube gris)
+     Nube gris: Vercel emite el certificado. Con la nube naranja puede dar error de SSL o bucles.
+  4. Esperá a que Vercel diga "Valid Configuration" (minutos) y abrí https://grabadora.TUDOMINIO.com
+  5. IMPORTANTE: cada dirección guarda sus datos por separado. En la dirección nueva la app arranca
+     vacía y sin clave. Antes de cambiarte:
+       - verificá que en la app vieja todo diga "Todo transcripto";
+       - compartí a Drive (botón Compartir) las grabaciones que quieras conservar con audio;
+       - NO desinstales la app vieja hasta tener lo que necesitás.
+     Después: instalá la app desde la dirección nueva y cargale la clave (enlace "Pasar la clave").
+
 7) PRUEBAS LOCALES (opcional, en la PC)
   npm test            pruebas de la lógica (no necesita nada instalado)
   npm run verify      además abre Chrome sin pantalla con micrófono falso y una API simulada.

@@ -44,7 +44,7 @@ process.env.APP_TOKEN = 'test-token';
 const api = await import(path.join(ROOT, 'api/transcribe.js'));
 
 /* ---------- Servidor estático + API real ---------- */
-const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.webmanifest': 'application/manifest+json', '.svg': 'image/svg+xml', '.png': 'image/png' };
+const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.webmanifest': 'application/manifest+json', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon' };
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://x');
   if (url.pathname === '/api/transcribe') {
@@ -294,7 +294,7 @@ await dp.evaluate(() => localStorage.setItem('acta.settings', JSON.stringify({ t
 await dp.reload();
 await step('Android', async () => {
   const st = await dp.evaluate(() => JSON.parse(localStorage.getItem('acta.settings')));
-  check('Android: los ajustes viejos se actualizan (vivo apagado, mic natural, bloques 1 min)', st.live === false && st.micMode === 'natural' && st.segSec === 60 && st.token === 'test-token', JSON.stringify({ live: st.live, mic: st.micMode, seg: st.segSec }));
+  check('Android: los ajustes viejos se actualizan (vivo apagado, mic natural, bloques automáticos)', st.live === false && st.micMode === 'natural' && st.segSec === 0 && st.token === 'test-token', JSON.stringify({ live: st.live, mic: st.micMode, seg: st.segSec }));
   await dp.tap('#btn-start');
   await dp.waitForSelector('#live:not([hidden])');
   await dp.waitForTimeout(3000);
@@ -364,13 +364,73 @@ await step('Teléfono sin clave', async () => {
   const saysWrong = await fp.waitForFunction(() => /no coincide/.test(document.querySelector('#health').textContent), null, { timeout: 5000 }).then(() => true, () => false);
   check('Clave equivocada: el inicio dice que no coincide', saysWrong);
   await fp.click('.tab[data-go="settings"]');
-  check('Ajustes muestra la versión de la app', /3\.1 · 25\/11\/2026/.test(await fp.textContent('#storage-kv')));
+  const ver = await fp.waitForFunction(() => /4 · 25\/11\/2026/.test(document.querySelector('#storage-kv').textContent), null, { timeout: 5000 }).then(() => true, () => false);
+  check('Ajustes muestra la versión de la app', ver);
+});
+
+/* =========================================================
+   E) ACTUALIZACIÓN desde la versión anterior + clave que no se pierde + texto casi en vivo
+   ========================================================= */
+const upg = await browser.newContext({
+  viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, permissions: ['microphone'],
+  userAgent: 'Mozilla/5.0 (Linux; Android 14; SM-A546E) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36',
+});
+const up = await upg.newPage(); watch(up);
+await up.goto(BASE + 'icon.svg'); // mismo origen, sin cargar la app: base de datos como la dejó la versión 1
+await up.evaluate(() => new Promise((res) => {
+  const r = indexedDB.open('acta', 1);
+  r.onupgradeneeded = () => {
+    const d = r.result;
+    d.createObjectStore('sessions', { keyPath: 'id' });
+    const ch = d.createObjectStore('chunks', { autoIncrement: true }); ch.createIndex('track', ['sid', 'track', 'part']); ch.createIndex('sid', 'sid');
+    const sg = d.createObjectStore('segments', { keyPath: ['sid', 'idx'] }); sg.createIndex('sid', 'sid'); sg.createIndex('status', 'status');
+    d.createObjectStore('lines', { autoIncrement: true }).createIndex('sid', 'sid');
+    d.createObjectStore('marks', { autoIncrement: true }).createIndex('sid', 'sid');
+  };
+  r.onsuccess = () => {
+    const t = r.result.transaction('sessions', 'readwrite');
+    t.objectStore('sessions').put({ id: 'vieja-1', createdAt: Date.now() - 864e5, client: '', title: 'Reunión de la versión anterior', titleManual: true, tags: [], userTags: [], hiddenTags: [], status: 'stopped', durationMs: 60000, mime: 'audio/webm', parts: [], endedAt: Date.now() - 86e6, deleted: false, searchText: '', liveText: '' });
+    t.oncomplete = () => { r.result.close(); res(); };
+  };
+}));
+await up.evaluate(() => localStorage.setItem('acta.settings', JSON.stringify({ v: 2, token: 'test-token', segSec: 60, live: false, micMode: 'natural' })));
+await up.goto(BASE);
+await step('Actualización y clave', async () => {
+  await up.waitForTimeout(1500);
+  check('Actualizar no borra las grabaciones existentes', /versión anterior/.test(await up.textContent('#recent')));
+  const kv = await up.evaluate(() => new Promise((res) => { const r = indexedDB.open('acta'); r.onsuccess = () => { const q = r.result.transaction('kv').objectStore('kv').get('settings'); q.onsuccess = () => res(q.result); }; }));
+  check('La clave queda guardada también en la base de datos', kv && kv.token === 'test-token');
+  const st = await up.evaluate(() => JSON.parse(localStorage.getItem('acta.settings')));
+  check('Pasa a bloques automáticos al actualizar', st.segSec === 0 && st.v === 3, `segSec ${st.segSec}`);
+  await up.evaluate(() => localStorage.clear()); // el navegador borró los ajustes rápidos
+  await up.reload();
+  await up.waitForTimeout(2000);
+  const st2 = await up.evaluate(() => JSON.parse(localStorage.getItem('acta.settings') || '{}'));
+  const ok = await up.waitForFunction(() => /Transcripción conectada/.test(document.querySelector('#health').textContent), null, { timeout: 5000 }).then(() => true, () => false);
+  check('Si se borran los ajustes, la clave se recupera sola', st2.token === 'test-token' && ok);
+});
+await step('Texto casi en vivo en el teléfono', async () => {
+  await up.tap('#btn-start');
+  await up.waitForSelector('#live:not([hidden])');
+  await up.waitForTimeout(2500);
+  check('Mientras graba muestra que está escuchando', await up.evaluate(() => !document.querySelector('#pending').hidden));
+  const t0 = Date.now();
+  const first = await up.waitForFunction(() => /relevamiento del proceso/.test(document.querySelector('#live-t').textContent), null, { timeout: 30000, polling: 500 }).then(() => Date.now() - t0 + 2500, () => 0);
+  check('El primer texto aparece a los pocos segundos de hablar', first > 0 && first < 18000, `${Math.round(first / 1000)} s desde que empezó`);
+  await up.waitForTimeout(16000);
+  const segs = (await getAll(up, 'segments')).filter((g) => g.sid !== 'vieja-1');
+  const closed = segs.filter((g) => g.endMs);
+  const lens = closed.map((g) => (g.endMs - g.startMs) / 1000);
+  check('Los bloques automáticos duran entre 8 y 20 s', closed.length >= 2 && lens.every((x) => x >= 7.5 && x <= 21), lens.map((x) => x.toFixed(1)).join(', '));
+  check('Cada bloque se transcribe enseguida', segs.filter((g) => g.status === 'done').length >= closed.length - 1, `${segs.filter((g) => g.status === 'done').length}/${closed.length}`);
+  await up.screenshot({ path: `${OUT}/09-casi-en-vivo-390.png` });
+  await stopRec(up);
 });
 
 const bad = await fetch(BASE + 'api/transcribe', { headers: { 'x-app-token': 'mala' } });
 check('La API rechaza una clave incorrecta (401)', bad.status === 401);
 const relevant = errors.filter((e) => !/speech|recognition|status of 401/i.test(e)); // 401: prueba de clave equivocada
-check('Consola sin errores ni 404', relevant.length === 0, relevant.slice(0, 3).join(' | '));
+check('Consola sin errores ni 404', relevant.length === 0, relevant.filter((e) => e.startsWith('404 ')).concat(relevant).slice(0, 3).join(' | '));
 
 await browser.close(); server.close(); upstream.close();
 const failed = results.filter((r) => !r[1]).length;

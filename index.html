@@ -9,6 +9,7 @@
 <meta name="theme-color" content="#F5F5F2">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="alternate icon" href="favicon.ico" sizes="32x32">
 <link rel="apple-touch-icon" href="icon-192.png">
 <style>
 :root{
@@ -155,6 +156,9 @@ textarea.input{min-height:96px;resize:vertical;line-height:1.45}
 .line.draft p{color:var(--ink-2)}
 .line.interim p{color:var(--ink-3);font-style:italic}
 .line.mark p{font-weight:650}
+.line.pending p{color:var(--ink-3);display:flex;align-items:center;gap:8px;font-size:.9375rem}
+.line.pending i{width:8px;height:8px;border-radius:50%;background:var(--accent);flex:none}
+@media (prefers-reduced-motion:no-preference){.line.pending i{animation:pulse 1.6s ease-in-out infinite}}
 .line.mark p::before{content:"★ ";color:var(--accent)}
 .line.gap p{color:var(--warn);font-weight:600}
 .line p{margin:0;overflow-wrap:anywhere}
@@ -328,8 +332,9 @@ dialog::backdrop{background:rgba(16,17,20,.45)}
             <option value="pt-BR">Portugués (BR)</option>
           </select>
         </label>
-        <label class="field"><span>Bloques de</span>
+        <label class="field"><span>Bloques</span>
           <select class="input" name="segSec">
+            <option value="0">Automático (casi en vivo)</option>
             <option value="60">1 minuto</option><option value="120">2 minutos</option>
             <option value="180">3 minutos</option><option value="300">5 minutos</option>
           </select>
@@ -403,8 +408,8 @@ dialog::backdrop{background:rgba(16,17,20,.45)}
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
 <script type="module">
-import * as C from './core.js?v=3';
-const APP_VERSION = '3.1 · 25/11/2026';
+import * as C from './core.js?v=4';
+const APP_VERSION = '4 · 25/11/2026';
 
 /* =========================================================
    Utilidades
@@ -442,7 +447,27 @@ let settings = (() => {
   store.set('settings', JSON.stringify(s));
   return s;
 })();
-function saveSettings(s) { settings = C.normalizeSettings(s); store.set('settings', JSON.stringify(settings)); }
+function saveSettings(s) {
+  settings = C.normalizeSettings(s);
+  store.set('settings', JSON.stringify(settings));
+  if (db) dbPut('kv', settings, 'settings').catch(() => {}); // copia de respaldo de los ajustes y la clave
+}
+/** Si el navegador borró los ajustes rápidos, se recuperan de la copia en IndexedDB (y al revés). */
+async function syncSettingsBackup() {
+  // Se vuelve a leer lo guardado: nunca se pisa con una copia vieja en memoria.
+  let local = null;
+  try { local = JSON.parse(store.get('settings') || 'null'); } catch { local = null; }
+  if (local) settings = C.migrateSettings(local, IS_ANDROID);
+  const saved = await dbGet('kv', 'settings').catch(() => null);
+  if (!settings.token && saved && saved.token) { saveSettings({ ...settings, token: saved.token }); return; }
+  dbPut('kv', settings, 'settings').catch(() => {});
+}
+// Otra pestaña o ventana cambió los ajustes: se toman al instante.
+window.addEventListener('storage', (e) => {
+  if (e.key !== 'acta.settings' || !e.newValue) return;
+  try { settings = C.normalizeSettings(JSON.parse(e.newValue)); } catch { return; }
+  P.blocked = ''; renderHealth(); renderSync();
+});
 const tagRules = () => [...C.TAG_RULES, ...C.parseCustomTags(settings.customTags)];
 
 /* =========================================================
@@ -451,18 +476,25 @@ const tagRules = () => [...C.TAG_RULES, ...C.parseCustomTags(settings.customTags
 let db;
 function openDB() {
   return new Promise((res, rej) => {
-    const r = indexedDB.open('acta', 1);
+    const r = indexedDB.open('acta', 2);
     r.onupgradeneeded = () => {
+      // Cada almacén se crea solo si falta: actualizar nunca toca las grabaciones existentes.
       const d = r.result;
-      d.createObjectStore('sessions', { keyPath: 'id' });
-      const ch = d.createObjectStore('chunks', { autoIncrement: true });
-      ch.createIndex('track', ['sid', 'track', 'part']);
-      ch.createIndex('sid', 'sid');
-      const sg = d.createObjectStore('segments', { keyPath: ['sid', 'idx'] });
-      sg.createIndex('sid', 'sid');
-      sg.createIndex('status', 'status');
-      d.createObjectStore('lines', { autoIncrement: true }).createIndex('sid', 'sid');
-      d.createObjectStore('marks', { autoIncrement: true }).createIndex('sid', 'sid');
+      const has = (n) => d.objectStoreNames.contains(n);
+      if (!has('sessions')) d.createObjectStore('sessions', { keyPath: 'id' });
+      if (!has('chunks')) {
+        const ch = d.createObjectStore('chunks', { autoIncrement: true });
+        ch.createIndex('track', ['sid', 'track', 'part']);
+        ch.createIndex('sid', 'sid');
+      }
+      if (!has('segments')) {
+        const sg = d.createObjectStore('segments', { keyPath: ['sid', 'idx'] });
+        sg.createIndex('sid', 'sid');
+        sg.createIndex('status', 'status');
+      }
+      if (!has('lines')) d.createObjectStore('lines', { autoIncrement: true }).createIndex('sid', 'sid');
+      if (!has('marks')) d.createObjectStore('marks', { autoIncrement: true }).createIndex('sid', 'sid');
+      if (!has('kv')) d.createObjectStore('kv');
     };
     r.onsuccess = () => { const d = r.result; d.onversionchange = () => d.close(); res(d); };
     r.onerror = () => rej(r.error);
@@ -554,7 +586,7 @@ const R = {
   accMs: 0, resumeAt: 0, lastChunkAt: 0, lastSavedAt: 0, bytes: 0,
   live: [], marks: [], doneSegs: [],
   audioCtx: null, analyser: null, srcNode: null, abuf: null, level: 0, segMax: 0, analyserOk: false,
-  flatSince: 0, lastFlatAction: 0, reconnecting: false, userStopping: false, timers: [], wakeOk: false,
+  flatSince: 0, lastFlatAction: 0, noiseFloor: 0, quietMs: 0, lastTick: 0, reconnecting: false, userStopping: false, timers: [], wakeOk: false,
   masterChunks: 0, hiddenAt: 0, chunksAtHide: 0,
 };
 const activeMs = () => R.accMs + (R.state === 'recording' ? performance.now() - R.resumeAt : 0);
@@ -652,6 +684,7 @@ function startSegment() {
   R.segIdx += 1;
   R.segStartMs = activeMs();
   R.segMax = 0;
+  R.quietMs = 0;
   R.segRec = { sid: R.sid, idx: R.segIdx, startMs: Math.round(R.segStartMs), endMs: null, status: 'recording', attempts: 0, maxLevel: 0, mime: R.mime };
   dbPut('segments', R.segRec).catch(() => {});
   R.seg = makeRecorder('s', R.segIdx);
@@ -666,7 +699,8 @@ async function closeSegment(mr, seg) {
   pumpQueue();
 }
 function maybeRotate() {
-  if (R.state === 'recording' && R.segRec && activeMs() - R.segStartMs >= settings.segSec * 1000) rotateSegment();
+  if (R.state !== 'recording' || !R.segRec) return;
+  if (C.shouldRotate({ lenMs: activeMs() - R.segStartMs, quietMs: R.quietMs, segSec: settings.segSec })) rotateSegment();
 }
 function rotateSegment() {
   const oldMr = R.seg, oldSeg = R.segRec;
@@ -867,14 +901,19 @@ function tick() {
     R.analyser.getFloatTimeDomainData(R.abuf);
     const { rms, peak, flat } = C.analyzeFloat(R.abuf);
     R.level = rms;
+    const now = performance.now();
+    const dt = R.lastTick ? Math.min(1000, now - R.lastTick) : 0;
+    R.lastTick = now;
     if (R.state === 'recording') {
+      R.noiseFloor = C.updateNoiseFloor(R.noiseFloor, rms);
+      R.quietMs = C.isQuiet(rms, R.noiseFloor) ? R.quietMs + dt : 0;
       R.segMax = Math.max(R.segMax, peak);
       if (!flat) R.analyserOk = true;
       if (flat && R.audioCtx?.state === 'running') { if (!R.flatSince) R.flatSince = Date.now(); } else R.flatSince = 0;
     }
   }
   maybeRotate();
-  if (document.visibilityState === 'visible') updateLiveUI();
+  if (document.visibilityState === 'visible') { updateLiveUI(); updatePending(); }
 }
 function watchdog() {
   if (R.state !== 'recording') return;
@@ -1230,14 +1269,24 @@ function lineHTML(i, asButton = false) {
   return `<${tag} class="line ${cls}"${attrs}${editable}><time>${C.formatDuration(i.ms)}</time><p>${esc(i.text)}</p></${tag}>`;
 }
 const nearBottom = (el) => el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+const INTERIM_HTML = '<div class="line interim" id="interim" hidden><time></time><p></p></div><div class="line pending" id="pending" hidden><time></time><p><i></i>Escuchando… el texto aparece a los pocos segundos</p></div>';
+function updatePending() {
+  const n = $('#pending');
+  if (!n) return;
+  const show = R.state === 'recording' && !L.wanted && !!R.segRec;
+  const el = $('#live-t');
+  const stick = el && nearBottom(el);
+  if (n.hidden === show) { n.hidden = !show; if (show && stick) scrollLiveToEnd(); }
+  if (show) n.querySelector('time').textContent = C.formatDuration(R.segStartMs);
+}
 function renderLivePanel() {
   const el = $('#live-t');
   const stick = nearBottom(el);
   const items = C.buildTranscript({ segments: R.doneSegs, live: R.live, marks: R.marks.map((m) => ({ ...m })) });
   for (const it of items) if (it.kind === 'mark') it.key = R.marks.find((m) => m.ms === it.ms && m.text === it.text)?.key;
   el.innerHTML = items.length
-    ? items.map((i) => lineHTML(i)).join('') + '<div class="line interim" id="interim" hidden><time></time><p></p></div>'
-    : '<p class="empty small" id="live-empty">Lo que se diga aparece acá.</p><div class="line interim" id="interim" hidden><time></time><p></p></div>';
+    ? items.map((i) => lineHTML(i)).join('') + INTERIM_HTML
+    : '<p class="empty small" id="live-empty">Lo que se diga aparece acá.</p>' + INTERIM_HTML;
   $('#legend').textContent = liveAvailable()
     ? 'Gris: borrador en vivo. Negro: versión final corregida (llega por bloques).'
     : 'El texto llega por bloques, ya corregido, a medida que se transcribe.';
@@ -1659,7 +1708,7 @@ function renderSettings() {
   f.customTags.value = settings.customTags;
   f.micMode.value = settings.micMode;
   $('#live-help').innerHTML = !SR ? 'Este navegador no ofrece reconocimiento de voz en vivo.'
-    : IS_ANDROID && store.get('liveConflict') !== '1' ? 'En Android conviene dejarla apagada: el borrador en vivo le quita el micrófono a la grabación y el audio sale entrecortado. Con bloques de 1 minuto el texto llega casi en vivo igual.'
+    : IS_ANDROID && store.get('liveConflict') !== '1' ? 'En Android conviene dejarla apagada: el borrador en vivo le quita el micrófono a la grabación y el audio sale entrecortado. Con bloques automáticos el texto aparece a los pocos segundos de cada frase.'
     : store.get('liveConflict') === '1' ? 'Se apagó sola porque tu teléfono no deja grabar y transcribir en vivo a la vez. <button class="btn btn-sm" type="button" id="btn-reset-live">Probar de nuevo</button>' : '';
   $('#btn-reset-live')?.addEventListener('click', () => { store.del('liveConflict'); renderSettings(); toast('Se va a probar en la próxima grabación.'); });
   renderStorage();
@@ -1902,7 +1951,9 @@ async function requeueOldSilent() {
     await dialog({ title: 'No se puede abrir el almacenamiento', body: `${e.message || e}. Cerrá otras pestañas de Acta o salí del modo incógnito.`, ok: 'Entendido', cancel: null });
     return;
   }
+  await syncSettingsBackup();
   applySetupLink();
+  navigator.storage?.persist?.().catch(() => {});
   const recovered = await recoverInterrupted().catch((e) => { console.warn(e); return []; });
   await requeueOldSilent().catch((e) => console.warn(e));
   showRecoveryBanner(recovered);
