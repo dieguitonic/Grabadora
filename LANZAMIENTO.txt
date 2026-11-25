@@ -49,7 +49,9 @@ ESTRUCTURA
   - Abrí https://TU-PROYECTO.vercel.app
   - Menú de Chrome > "Agregar a la pantalla principal" (o el botón Instalar de la app).
     IMPORTANTE: instalada, el sistema protege el almacenamiento y no borra grabaciones.
-  - Abrí la app instalada > Ajustes > pegá el APP_TOKEN > Guardar > Probar conexión.
+  - La clave se guarda POR DISPOSITIVO. Forma rápida: en la PC, Ajustes > "Pasar la clave al
+    teléfono" > mandate el enlace por WhatsApp y abrilo en el teléfono. Queda cargada sola.
+  - O a mano: Ajustes > pegá el APP_TOKEN > Guardar > Probar conexión.
     Tiene que decir "Conectado. Motor: whisper-large-v3".
   - Aceptá el permiso de micrófono como "Permitir siempre" (no "solo esta vez").
   - Ajustes del teléfono > Apps > Chrome > Batería > Sin restricciones (evita que Android corte

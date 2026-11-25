@@ -317,8 +317,9 @@ dialog::backdrop{background:rgba(16,17,20,.45)}
       </label>
       <label class="field"><span>Clave de la app (APP_TOKEN)</span>
         <input class="input" name="token" type="password" autocomplete="new-password">
-        <p class="help">La misma que cargaste en Vercel. Evita que otros usen tu servidor.</p>
+        <p class="help">La misma que cargaste en Vercel. Se guarda en cada dispositivo por separado.</p>
       </label>
+      <button class="btn" type="button" id="btn-share-key">Pasar la clave al teléfono</button>
       <div class="row2">
         <label class="field"><span>Idioma</span>
           <select class="input" name="lang">
@@ -402,7 +403,8 @@ dialog::backdrop{background:rgba(16,17,20,.45)}
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
 <script type="module">
-import * as C from './core.js';
+import * as C from './core.js?v=3';
+const APP_VERSION = '3 · 25/11/2026';
 
 /* =========================================================
    Utilidades
@@ -994,9 +996,32 @@ async function commitLive(text, run, ms) {
 /* =========================================================
    Cola de transcripción final (Whisper vía /api/transcribe)
    ========================================================= */
-const P = { busy: false, blocked: '' };
+const P = { busy: false, blocked: '', checkedAt: 0 };
+/** Por qué la cola no puede transcribir ahora ('' si puede). */
+function queueReason() {
+  if (!settings.token) return 'Falta la clave del servidor en este dispositivo. Cargala en Ajustes o abrí el enlace de configuración desde la PC.';
+  if (P.blocked) return P.blocked;
+  if (!navigator.onLine) return 'Sin internet: se transcribe solo cuando vuelva la conexión.';
+  return '';
+}
+/** Verifica el servidor y deja el motivo exacto si algo falla. Se reintenta solo cada 2 min. */
+async function checkServer() {
+  P.checkedAt = Date.now();
+  if (!settings.token || !navigator.onLine) { renderHealth(); renderSync(); return; }
+  try {
+    const r = await fetch(settings.endpoint, { headers: { 'x-app-token': settings.token }, cache: 'no-store' });
+    const j = await r.json().catch(() => ({}));
+    if (r.ok) P.blocked = '';
+    else if (r.status === 401) P.blocked = 'La clave de este dispositivo no coincide con la del servidor (APP_TOKEN). Corregila en Ajustes.';
+    else if (r.status === 404 || r.status === 405) P.blocked = 'No se encontró el servidor de transcripción. Revisá la dirección en Ajustes.';
+    else P.blocked = `El servidor de transcripción falla: ${j.error || 'error ' + r.status}. Revisá las variables en Vercel y hacé Redeploy.`;
+  } catch { /* sin red: se vuelve a probar después */ }
+  renderHealth(); renderSync();
+  if (!P.blocked) pumpQueue();
+}
 async function pumpQueue() {
   if (P.busy || !db) return;
+  if (P.blocked && Date.now() - P.checkedAt > 120000) { checkServer(); return; }
   if (!navigator.onLine || !settings.endpoint || !settings.token || P.blocked) { renderSync(); return; }
   P.busy = true; renderSync();
   try {
@@ -1043,8 +1068,8 @@ async function transcribeSegment(seg) {
     const signal = AbortSignal.timeout ? AbortSignal.timeout(90000) : undefined;
     res = await fetch(settings.endpoint, { method: 'POST', headers: { 'x-app-token': settings.token }, body: fd, signal });
   } catch { return fail('Sin conexión con el servidor'); }
-  if (res.status === 401) { P.blocked = 'La clave de la app no coincide con la del servidor. Revisala en Ajustes.'; return fail('Clave inválida', 60000); }
-  if (res.status === 404 || res.status === 405) { P.blocked = 'No se encontró el servidor de transcripción. Revisá la dirección en Ajustes.'; return fail('Servidor no encontrado', 60000); }
+  if (res.status === 401) { P.blocked = 'La clave de este dispositivo no coincide con la del servidor (APP_TOKEN). Corregila en Ajustes.'; P.checkedAt = Date.now(); return fail('Clave inválida', 60000); }
+  if (res.status === 404 || res.status === 405) { P.blocked = 'No se encontró el servidor de transcripción. Revisá la dirección en Ajustes.'; P.checkedAt = Date.now(); return fail('Servidor no encontrado', 60000); }
   if (!res.ok) {
     let msg = `Error ${res.status}`;
     try { msg = (await res.json()).error || msg; } catch { /* sin cuerpo */ }
@@ -1309,9 +1334,8 @@ async function renderHealth() {
   const free = est ? est.quota - est.usage : Infinity;
   if (free < 300 * 1024 * 1024) items.push(['bad', `Poco espacio libre para la app (${C.formatBytes(free)})`]);
   items.push(persisted ? ['ok', 'Almacenamiento protegido: el sistema no lo borra'] : ['warn', 'Instalá la app en la pantalla de inicio para proteger las grabaciones']);
-  if (!settings.token) items.push(['warn', 'Falta la clave del servidor: cargala en Ajustes para transcribir']);
-  else if (!navigator.onLine) items.push(['warn', 'Sin internet: se graba igual y se transcribe al volver']);
-  else items.push(P.blocked ? ['bad', P.blocked] : ['ok', 'Transcripción conectada']);
+  const reason = queueReason();
+  items.push(reason ? [settings.token && navigator.onLine ? 'bad' : 'warn', reason] : ['ok', 'Transcripción conectada']);
   items.push(liveAvailable() ? ['ok', 'Borrador en vivo disponible'] : ['', SR ? 'Borrador en vivo apagado: el texto llega por bloques' : 'Este navegador no tiene borrador en vivo: el texto llega por bloques']);
   $('#health').innerHTML = items.map(([k, t]) => `<li><span class="dot ${k}"></span><span>${esc(t)}</span></li>`).join('');
 }
@@ -1327,6 +1351,9 @@ async function renderSync() {
   else if (n) { cls = P.busy ? 'busy' : 'warn'; txt = `${n} por transcribir`; }
   el.className = 'sync ' + cls;
   el.lastElementChild.textContent = txt;
+  const reason = queueReason();
+  if (isActive() && reason) showAlert('queue', `${esc(reason)} La grabación sigue a salvo y se transcribe cuando se resuelva.`, settings.token && navigator.onLine ? 'bad' : 'warn');
+  else clearAlert('queue');
 }
 
 /* ---------- Listas ---------- */
@@ -1426,7 +1453,9 @@ async function renderDetail(sid, soft = false) {
   function progressHTML() {
     if (!segments.length) return '';
     if (done === segments.length) return `<p class="small muted">Transcripción completa · ${segments.length} bloques</p><div class="progress"><b style="width:100%"></b></div>`;
-    const msg = errs.length ? `Reintentando ${errs.length} bloque(s): ${esc(errs[0].error || '')}` : !navigator.onLine ? 'Sin internet: se transcribe al volver' : 'Transcribiendo…';
+    const reason = queueReason();
+    if (reason) return `<div class="banner ${settings.token && navigator.onLine ? 'bad' : ''}"><div><p><b>Todavía no se transcribe.</b> ${esc(reason)}</p><div class="actions"><button class="btn btn-sm btn-primary" data-go="settings">Ir a Ajustes</button></div></div></div><p class="small muted">${done} de ${segments.length} bloques con texto. El audio está guardado.</p>`;
+    const msg = errs.length ? `Reintentando ${errs.length} bloque(s): ${esc(errs[0].error || '')}` : 'Transcribiendo…';
     return `<p class="small muted">${done} de ${segments.length} bloques · ${msg}</p><div class="progress"><b style="width:${pct}%"></b></div>`;
   }
   $('#v-detail').innerHTML = `
@@ -1457,6 +1486,7 @@ async function renderDetail(sid, soft = false) {
     </div>
     <div class="sec more">
       ${errs.length ? '<button class="btn btn-sm" id="d-retry">Reintentar ahora</button>' : ''}
+      ${!recording && segments.length ? '<button class="btn btn-sm" id="d-redo">Volver a transcribir</button>' : ''}
       ${!recording ? '<button class="btn btn-sm" id="d-trash">Mover a papelera</button>' : ''}
     </div>`;
   if (!recording) loadPart(s, D.partIdx);
@@ -1567,6 +1597,18 @@ function bindDetail(s) {
     for (const g of segs) if (g.status === 'error') { g.nextTry = 0; g.status = 'pending'; await dbPut('segments', g); }
     P.blocked = ''; pumpQueue(); toast('Reintentando…');
   });
+  $('#d-redo')?.addEventListener('click', async () => {
+    const ok = await dialog({ title: 'Volver a transcribir', body: 'Se rehace el texto a partir del audio guardado. Tarda unos minutos y no borra el audio.', ok: 'Transcribir', cancel: 'Cancelar' });
+    if (!ok) return;
+    let n = 0;
+    for (const g of await dbAll('segments', 'sid', s.id)) {
+      if (!(await lastChunk(s.id, 's', g.idx))) continue; // copia ya liberada: se deja como está
+      Object.assign(g, { status: 'pending', attempts: 0, result: [], nextTry: 0, note: undefined, error: undefined });
+      await dbPut('segments', g); n += 1;
+    }
+    P.blocked = ''; checkServer(); renderDetail(s.id);
+    toast(n ? `Transcribiendo de nuevo ${n} bloque(s)…` : 'No hay audio de respaldo para rehacer el texto.');
+  });
   $('#d-continue')?.addEventListener('click', async () => {
     const cur = await fresh();
     go('rec'); startRecording(cur);
@@ -1628,7 +1670,8 @@ async function renderStorage() {
   $('#storage-kv').innerHTML = `<dt>Grabaciones</dt><dd>${sessions.length}</dd>
     <dt>Espacio usado</dt><dd>${est ? C.formatBytes(est.usage) : '—'}</dd>
     <dt>Espacio disponible</dt><dd>${est ? C.formatBytes(est.quota - est.usage) : '—'}</dd>
-    <dt>Protegido contra borrado</dt><dd style="color:${persisted ? 'var(--ok)' : 'var(--warn)'}">${persisted ? 'Sí' : 'No'}</dd>`;
+    <dt>Protegido contra borrado</dt><dd style="color:${persisted ? 'var(--ok)' : 'var(--warn)'}">${persisted ? 'Sí' : 'No'}</dd>
+    <dt>Versión de la app</dt><dd>${APP_VERSION}</dd>`;
   $('#btn-persist').hidden = !!persisted;
 }
 $('#settings-form').addEventListener('submit', (e) => {
@@ -1636,8 +1679,26 @@ $('#settings-form').addEventListener('submit', (e) => {
   const f = e.currentTarget.elements;
   saveSettings({ endpoint: f.endpoint.value, token: f.token.value, lang: f.lang.value, segSec: f.segSec.value, bitrate: f.bitrate.value, live: f.live.checked, micMode: f.micMode.value, customTags: f.customTags.value });
   P.blocked = '';
-  toast('Ajustes guardados'); renderHealth(); renderSync(); pumpQueue();
+  toast('Ajustes guardados'); checkServer();
 });
+/* Enlace para pasar la clave a otro dispositivo (el # no viaja al servidor). */
+$('#btn-share-key').addEventListener('click', async () => {
+  const token = $('#settings-form').elements.token.value.trim();
+  if (!token) { toast('Primero cargá la clave en este dispositivo.'); return; }
+  const url = `${location.origin}${location.pathname}#clave=${encodeURIComponent(token)}`;
+  try { if (navigator.share) { await navigator.share({ title: 'Configurar Acta', text: 'Abrí este enlace en el teléfono para configurar Acta:', url }); return; } } catch { /* cancelado: se copia */ }
+  if (await copyText(url)) toast('Enlace copiado. Mandátelo por WhatsApp y abrilo en el teléfono.');
+});
+function applySetupLink() {
+  const m = location.hash.match(/clave=([^&]+)/);
+  if (!m) return;
+  history.replaceState(history.state, '', location.pathname + location.search);
+  const token = decodeURIComponent(m[1]).trim();
+  if (!token) return;
+  saveSettings({ ...settings, token });
+  P.blocked = '';
+  toast('Clave cargada en este dispositivo');
+}
 /* Prueba de micrófono: graba 6 s con el modo elegido y lo reproduce. */
 $('#btn-mictest').addEventListener('click', async (e) => {
   const btn = e.currentTarget, out = $('#mictest-out'), msg = $('#mictest-msg'), au = $('#mictest-audio');
@@ -1793,7 +1854,8 @@ function stopBackground() {
     }
   } catch { /* opcional */ }
 }
-window.addEventListener('online', () => { clearAlert('liveNet'); pumpQueue(); renderHealth(); });
+window.addEventListener('online', () => { clearAlert('liveNet'); checkServer(); });
+window.addEventListener('hashchange', () => { if (/clave=/.test(location.hash)) { applySetupLink(); checkServer(); } });
 window.addEventListener('offline', () => { renderSync(); renderHealth(); });
 navigator.getBattery?.().then((b) => {
   const check = () => { if (isActive() && !b.charging && b.level <= 0.2) showAlert('battery', `Batería al ${Math.round(b.level * 100)} %. Conectá el cargador para no cortar la reunión.`, 'bad'); else clearAlert('battery'); };
@@ -1805,7 +1867,28 @@ let deferredInstall = null;
 window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); deferredInstall = e; $('#btn-install').hidden = false; });
 $('#btn-install').addEventListener('click', async () => { if (!deferredInstall) return; deferredInstall.prompt(); await deferredInstall.userChoice.catch(() => {}); deferredInstall = null; $('#btn-install').hidden = true; });
 
-if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch((e) => console.warn('SW', e));
+if ('serviceWorker' in navigator) {
+  const hadController = !!navigator.serviceWorker.controller;
+  let reloading = false;
+  navigator.serviceWorker.register('sw.js').then((reg) => reg.update()).catch((e) => console.warn('SW', e));
+  // Versión nueva publicada: se recarga sola, pero nunca durante una grabación.
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!hadController || reloading) return;
+    const reload = () => { if (isActive()) { setTimeout(reload, 30000); return; } reloading = true; location.reload(); };
+    reload();
+  });
+}
+/** Bloques que la versión anterior marcó como "silencio" por error: vuelven a la cola. */
+async function requeueOldSilent() {
+  if (store.get('requeueSilent') === '1') return;
+  const done = await dbAll('segments', 'status', 'done');
+  for (const g of done) {
+    if (g.note !== 'silencio') continue;
+    Object.assign(g, { status: 'pending', attempts: 0, result: [], note: undefined, nextTry: 0 });
+    await dbPut('segments', g);
+  }
+  store.set('requeueSilent', '1');
+}
 
 (async function boot() {
   history.replaceState({ view: 'rec' }, '');
@@ -1814,11 +1897,13 @@ if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catc
     await dialog({ title: 'No se puede abrir el almacenamiento', body: `${e.message || e}. Cerrá otras pestañas de Acta o salí del modo incógnito.`, ok: 'Entendido', cancel: null });
     return;
   }
+  applySetupLink();
   const recovered = await recoverInterrupted().catch((e) => { console.warn(e); return []; });
+  await requeueOldSilent().catch((e) => console.warn(e));
   showRecoveryBanner(recovered);
   renderHealth(); renderRecent(); renderSync();
   setInterval(pumpQueue, 20000);
-  pumpQueue();
+  checkServer();
   window.__acta = { R, P, settings: () => settings }; // inspección y pruebas
 })();
 </script>

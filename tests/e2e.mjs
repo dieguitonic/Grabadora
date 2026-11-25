@@ -311,9 +311,65 @@ await step('Android', async () => {
   await dp.screenshot({ path: `${OUT}/07-ajustes-android.png`, fullPage: true });
 });
 
+/* =========================================================
+   D) TELÉFONO NUEVO SIN CLAVE: el caso "graba pero no aparece texto"
+   ========================================================= */
+const fresh = await browser.newContext({
+  viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, permissions: ['microphone'],
+  userAgent: 'Mozilla/5.0 (Linux; Android 14; SM-A546E) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36',
+});
+const fp = await fresh.newPage(); watch(fp);
+await fp.goto(BASE);
+await fp.evaluate(() => localStorage.setItem('acta.settings', JSON.stringify({ v: 2, segSec: 20, live: false })));
+await fp.reload();
+await step('Teléfono sin clave', async () => {
+  const saysMissing = await fp.waitForFunction(() => /Falta la clave/.test(document.querySelector('#health').textContent), null, { timeout: 5000 }).then(() => true, () => false);
+  check('Sin clave: el inicio lo dice claramente', saysMissing);
+  await fp.tap('#btn-start');
+  await fp.waitForSelector('#live:not([hidden])');
+  await fp.waitForTimeout(24000);
+  check('Sin clave: aviso visible mientras graba', /Falta la clave/.test(await fp.textContent('#alerts')));
+  await stopRec(fp);
+  await fp.waitForTimeout(800);
+  check('Sin clave: el detalle explica por qué no hay texto y lleva a Ajustes', /Todavía no se transcribe/.test(await fp.textContent('#d-progress')) && !!(await fp.$('#d-progress [data-go="settings"]')));
+  await fp.screenshot({ path: `${OUT}/08-sin-clave-390.png`, fullPage: true });
+  // Enlace de configuración desde la PC
+  await fp.goto(BASE + '#clave=test-token');
+  await fp.waitForTimeout(1500);
+  const st = await fp.evaluate(() => [JSON.parse(localStorage.getItem('acta.settings')).token, location.hash]);
+  check('El enlace de configuración carga la clave y la borra de la dirección', st[0] === 'test-token' && st[1] === '', JSON.stringify(st));
+  await fp.waitForTimeout(6000);
+  const segs = await getAll(fp, 'segments');
+  check('Con la clave cargada, lo grabado antes se transcribe solo', segs.length >= 2 && segs.every((g) => g.status === 'done' && g.result.length), segs.map((g) => g.status + ':' + (g.result || []).length).join(','));
+  // Bloque viejo marcado "silencio" por la versión anterior
+  await fp.evaluate(() => new Promise((res) => { const r = indexedDB.open('acta'); r.onsuccess = () => { const t = r.result.transaction('segments', 'readwrite'); const os = t.objectStore('segments'); const q = os.getAll(); q.onsuccess = () => { const g = q.result[0]; g.status = 'done'; g.note = 'silencio'; g.result = []; os.put(g); }; t.oncomplete = res; }; }));
+  await fp.evaluate(() => localStorage.removeItem('acta.requeueSilent'));
+  await fp.reload();
+  await fp.waitForTimeout(7000);
+  const s0 = (await getAll(fp, 'segments'))[0];
+  check('Los bloques que la versión vieja marcó como "silencio" se transcriben', s0.status === 'done' && s0.result.length > 0 && !s0.note);
+  // Volver a transcribir
+  await fp.click('.tab[data-go="list"]');
+  await fp.click('#list .item');
+  await fp.waitForSelector('#d-redo');
+  const before = calls;
+  await fp.click('#d-redo');
+  await fp.click('#dlg button[value="ok"]');
+  await fp.waitForTimeout(7000);
+  check('"Volver a transcribir" rehace el texto desde el audio', calls > before && (await getAll(fp, 'segments')).every((g) => g.status === 'done'), `${calls - before} pedidos`);
+  // Clave equivocada: lo dice
+  await fp.evaluate(() => { const s = JSON.parse(localStorage.getItem('acta.settings')); s.token = 'mala'; localStorage.setItem('acta.settings', JSON.stringify(s)); });
+  await fp.reload();
+  await fp.waitForTimeout(2500);
+  const saysWrong = await fp.waitForFunction(() => /no coincide/.test(document.querySelector('#health').textContent), null, { timeout: 5000 }).then(() => true, () => false);
+  check('Clave equivocada: el inicio dice que no coincide', saysWrong);
+  await fp.click('.tab[data-go="settings"]');
+  check('Ajustes muestra la versión de la app', /3 · 25\/11\/2026/.test(await fp.textContent('#storage-kv')));
+});
+
 const bad = await fetch(BASE + 'api/transcribe', { headers: { 'x-app-token': 'mala' } });
 check('La API rechaza una clave incorrecta (401)', bad.status === 401);
-const relevant = errors.filter((e) => !/speech|recognition/i.test(e));
+const relevant = errors.filter((e) => !/speech|recognition|status of 401/i.test(e)); // 401: prueba de clave equivocada
 check('Consola sin errores ni 404', relevant.length === 0, relevant.slice(0, 3).join(' | '));
 
 await browser.close(); server.close(); upstream.close();

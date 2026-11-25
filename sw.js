@@ -1,7 +1,7 @@
 // Service worker: la app abre sin internet. Primero red (con límite de 3 s), si no, copia guardada.
 // La API nunca pasa por la caché.
-const CACHE = 'acta-v2';
-const SHELL = ['./', './index.html', './core.js', './manifest.webmanifest', './icon.svg', './icon-192.png', './icon-512.png'];
+const CACHE = 'acta-v3';
+const SHELL = ['./', './index.html', './core.js?v=3', './manifest.webmanifest', './icon.svg', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));
@@ -24,11 +24,14 @@ self.addEventListener('fetch', (e) => {
   e.respondWith((async () => {
     const cache = await caches.open(CACHE);
     try {
-      const res = await Promise.race([fetch(req), timeout(3000)]);
+      const res = await Promise.race([fetch(req), timeout(5000)]);
       if (res.ok) cache.put(req, res.clone());
       return res;
     } catch {
-      const hit = await cache.match(req, { ignoreSearch: true }) || (req.mode === 'navigate' ? await cache.match('./index.html') : null);
+      // Coincidencia exacta (core.js?v=N va siempre con su index.html): nunca se mezclan versiones.
+      const hit = req.mode === 'navigate'
+        ? (await cache.match(req, { ignoreSearch: true }) || await cache.match('./index.html'))
+        : await cache.match(req);
       return hit || new Response('Sin conexión', { status: 503, headers: { 'content-type': 'text/plain; charset=utf-8' } });
     }
   })());
