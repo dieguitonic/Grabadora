@@ -404,7 +404,7 @@ dialog::backdrop{background:rgba(16,17,20,.45)}
 
 <script type="module">
 import * as C from './core.js?v=3';
-const APP_VERSION = '3 · 25/11/2026';
+const APP_VERSION = '3.1 · 25/11/2026';
 
 /* =========================================================
    Utilidades
@@ -1012,7 +1012,8 @@ async function checkServer() {
     const r = await fetch(settings.endpoint, { headers: { 'x-app-token': settings.token }, cache: 'no-store' });
     const j = await r.json().catch(() => ({}));
     if (r.ok) P.blocked = '';
-    else if (r.status === 401) P.blocked = 'La clave de este dispositivo no coincide con la del servidor (APP_TOKEN). Corregila en Ajustes.';
+    else if (r.status === 401 && j.error) P.blocked = 'La clave de este dispositivo no coincide con la del servidor (APP_TOKEN). Si la cambiaste en Vercel, hacé Redeploy.';
+    else if (r.status === 401 || r.status === 403) P.blocked = `Vercel bloquea el acceso a ${location.host} (Deployment Protection o dirección de prueba). Abrí la app desde la dirección principal del proyecto o desactivá la protección en Vercel.`;
     else if (r.status === 404 || r.status === 405) P.blocked = 'No se encontró el servidor de transcripción. Revisá la dirección en Ajustes.';
     else P.blocked = `El servidor de transcripción falla: ${j.error || 'error ' + r.status}. Revisá las variables en Vercel y hacé Redeploy.`;
   } catch { /* sin red: se vuelve a probar después */ }
@@ -1671,7 +1672,8 @@ async function renderStorage() {
     <dt>Espacio usado</dt><dd>${est ? C.formatBytes(est.usage) : '—'}</dd>
     <dt>Espacio disponible</dt><dd>${est ? C.formatBytes(est.quota - est.usage) : '—'}</dd>
     <dt>Protegido contra borrado</dt><dd style="color:${persisted ? 'var(--ok)' : 'var(--warn)'}">${persisted ? 'Sí' : 'No'}</dd>
-    <dt>Versión de la app</dt><dd>${APP_VERSION}</dd>`;
+    <dt>Versión de la app</dt><dd>${APP_VERSION}</dd>
+    <dt>Dirección</dt><dd style="overflow-wrap:anywhere">${esc(location.host)}</dd>`;
   $('#btn-persist').hidden = !!persisted;
 }
 $('#settings-form').addEventListener('submit', (e) => {
@@ -1731,7 +1733,10 @@ $('#btn-test').addEventListener('click', async () => {
   try {
     const r = await fetch(f.endpoint.value.trim(), { headers: { 'x-app-token': f.token.value.trim() } });
     const j = await r.json().catch(() => ({}));
-    out.textContent = r.ok ? `Conectado. Motor: ${j.model || 'ok'}.` : r.status === 401 ? 'La clave no coincide con la del servidor.' : `Error ${r.status}: ${j.error || 'revisá la dirección'}`;
+    out.textContent = r.ok ? `Conectado. Motor: ${j.model || 'ok'}.`
+      : r.status === 401 && j.error ? 'La clave no coincide con la del servidor. Si la cambiaste en Vercel, hacé Redeploy.'
+      : r.status === 401 || r.status === 403 ? `Vercel bloquea el acceso a ${location.host}: Deployment Protection activa o dirección de prueba.`
+      : `Error ${r.status}: ${j.error || 'revisá la dirección'}`;
   } catch { out.textContent = 'No se pudo conectar. Revisá la dirección y tu internet.'; }
 });
 $('#btn-persist').addEventListener('click', async () => {

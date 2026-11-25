@@ -364,7 +364,7 @@ await step('Teléfono sin clave', async () => {
   const saysWrong = await fp.waitForFunction(() => /no coincide/.test(document.querySelector('#health').textContent), null, { timeout: 5000 }).then(() => true, () => false);
   check('Clave equivocada: el inicio dice que no coincide', saysWrong);
   await fp.click('.tab[data-go="settings"]');
-  check('Ajustes muestra la versión de la app', /3 · 25\/11\/2026/.test(await fp.textContent('#storage-kv')));
+  check('Ajustes muestra la versión de la app', /3\.1 · 25\/11\/2026/.test(await fp.textContent('#storage-kv')));
 });
 
 const bad = await fetch(BASE + 'api/transcribe', { headers: { 'x-app-token': 'mala' } });
