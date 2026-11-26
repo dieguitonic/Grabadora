@@ -56,11 +56,120 @@ process.env.STT_BASE_URL = `http://127.0.0.1:${upstream.address().port}`;
 process.env.STT_API_KEY = 'fake-key';
 process.env.APP_TOKEN = 'test-token';
 const api = await import(path.join(ROOT, 'api/transcribe.js'));
+const apiConfig = await import(path.join(ROOT, 'api/config.js'));
+
+/* ---------- Supabase simulado: cuentas, tablas con reglas por usuario y archivos ---------- */
+import { randomUUID } from 'node:crypto';
+const SB = { users: [], tokens: new Map(), refresh: new Map(), files: new Map(), last: 0,
+  tables: { meetings: [], blocks: [], notes: [], audio_slices: [] } };
+const SB_PK = { meetings: ['id'], blocks: ['meeting_id', 'idx'], notes: ['meeting_id', 'kind', 'key'], audio_slices: ['meeting_id', 'part', 'n'] };
+const sbStamp = () => { SB.last = Math.max(Date.now(), SB.last + 1); return new Date(SB.last).toISOString(); };
+function sbSession(u) {
+  const access = 'at-' + randomUUID(), refresh = 'rt-' + randomUUID();
+  SB.tokens.set(access, u); SB.refresh.set(refresh, u);
+  return { access_token: access, refresh_token: refresh, expires_in: 3600, user: { id: u.id, email: u.email } };
+}
+function sbSend(res, status, body, raw) {
+  res.writeHead(status, { 'content-type': raw ? 'application/octet-stream' : 'application/json' });
+  res.end(raw ? body : body === undefined ? '' : JSON.stringify(body));
+}
+function sbMatch(row, params) {
+  for (const [k, v] of params) {
+    if (['select', 'order', 'limit', 'on_conflict'].includes(k)) continue;
+    const [op, ...rest] = v.split('.'); const val = rest.join('.');
+    const cell = row[k] === undefined ? '' : String(row[k]);
+    if (op === 'eq' && cell !== val) return false;
+    if (op === 'gt' && !(cell > val)) return false;
+  }
+  return true;
+}
+async function supabaseMock(req, res, url, body) {
+  const path = url.pathname.slice(3); // sin /sb
+  if (req.headers.apikey !== 'anon-test') return sbSend(res, 401, { message: 'no apikey' });
+  const bearer = (req.headers.authorization || '').replace(/^Bearer /, '');
+  const user = SB.tokens.get(bearer);
+  if (path === '/auth/v1/signup') {
+    const j = JSON.parse(body.toString() || '{}');
+    if (SB.users.find((u) => u.email === j.email)) return sbSend(res, 422, { msg: 'User already registered' });
+    const u = { id: randomUUID(), email: j.email, password: j.password }; SB.users.push(u);
+    return sbSend(res, 200, sbSession(u));
+  }
+  if (path === '/auth/v1/token') {
+    const j = JSON.parse(body.toString() || '{}');
+    if (url.searchParams.get('grant_type') === 'password') {
+      const u = SB.users.find((x) => x.email === j.email && x.password === j.password);
+      return u ? sbSend(res, 200, sbSession(u)) : sbSend(res, 400, { error_description: 'Invalid login credentials' });
+    }
+    const u = SB.refresh.get(j.refresh_token);
+    return u ? sbSend(res, 200, sbSession(u)) : sbSend(res, 400, { error_description: 'Invalid Refresh Token' });
+  }
+  if (path === '/auth/v1/user') return user ? sbSend(res, 200, { id: user.id, email: user.email }) : sbSend(res, 401, { msg: 'bad jwt' });
+  if (path === '/auth/v1/logout') return sbSend(res, 204);
+  if (!user) return sbSend(res, 401, { message: 'JWT required' });
+  if (path.startsWith('/rest/v1/')) {
+    const table = path.slice(9);
+    const rows = SB.tables[table];
+    if (!rows) return sbSend(res, 404, { message: 'no table' });
+    const params = [...url.searchParams.entries()];
+    if (req.method === 'GET') {
+      let out = rows.filter((r) => r.user_id === user.id && sbMatch(r, params));
+      const order = url.searchParams.get('order');
+      if (order) {
+        const keys = order.split(',').map((o) => o.split('.')[0]);
+        out = [...out].sort((a, b) => { for (const k of keys) { if (a[k] < b[k]) return -1; if (a[k] > b[k]) return 1; } return 0; });
+      }
+      const limit = Number(url.searchParams.get('limit') || 0);
+      if (limit) out = out.slice(0, limit);
+      const sel = (url.searchParams.get('select') || '*').split(',');
+      return sbSend(res, 200, out.map((r) => (sel[0] === '*' ? r : Object.fromEntries(sel.map((k) => [k, r[k]])))));
+    }
+    if (req.method === 'POST') {
+      for (const row of JSON.parse(body.toString() || '[]')) {
+        const key = SB_PK[table];
+        const i = rows.findIndex((r) => r.user_id === user.id && key.every((k) => String(r[k]) === String(row[k])));
+        const val = { ...(i >= 0 ? rows[i] : {}), ...row, user_id: user.id, synced_at: sbStamp() };
+        if (i >= 0) rows[i] = val; else rows.push(val);
+      }
+      return sbSend(res, 201);
+    }
+    if (req.method === 'DELETE') {
+      const keep = rows.filter((r) => !(r.user_id === user.id && sbMatch(r, params)));
+      rows.length = 0; rows.push(...keep);
+      return sbSend(res, 204);
+    }
+  }
+  if (path.startsWith('/storage/v1/object/audio/') && req.method === 'POST') {
+    const key = path.slice('/storage/v1/object/audio/'.length);
+    if (!key.startsWith(user.id + '/')) return sbSend(res, 403, { message: 'policy' });
+    SB.files.set(key, body);
+    return sbSend(res, 200, { Key: key });
+  }
+  if (path.startsWith('/storage/v1/object/authenticated/audio/')) {
+    const key = path.slice('/storage/v1/object/authenticated/audio/'.length);
+    const f = key.startsWith(user.id + '/') && SB.files.get(key);
+    return f ? sbSend(res, 200, f, true) : sbSend(res, 404, { message: 'not found' });
+  }
+  if (path === '/storage/v1/object/audio' && req.method === 'DELETE') {
+    for (const k of JSON.parse(body.toString() || '{}').prefixes || []) if (k.startsWith(user.id + '/')) SB.files.delete(k);
+    return sbSend(res, 200, []);
+  }
+  return sbSend(res, 404, { message: 'mock: ruta no soportada ' + path });
+}
 
 /* ---------- Servidor estático + API real ---------- */
 const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.webmanifest': 'application/manifest+json', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon' };
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://x');
+  if (url.pathname.startsWith('/sb/')) {
+    const parts = []; for await (const c of req) parts.push(c);
+    return supabaseMock(req, res, url, Buffer.concat(parts));
+  }
+  if (url.pathname === '/api/config') {
+    const out = await apiConfig.GET(new Request(url));
+    res.writeHead(out.status, Object.fromEntries(out.headers));
+    res.end(Buffer.from(await out.arrayBuffer()));
+    return;
+  }
   if (url.pathname === '/api/transcribe') {
     const r = new Request(url, { method: req.method, headers: req.headers, body: ['GET', 'HEAD'].includes(req.method) ? undefined : Readable.toWeb(req), duplex: 'half' });
     const out = await (api[req.method] ? api[req.method](r) : new Response('', { status: 405 }));
@@ -73,6 +182,8 @@ const server = http.createServer(async (req, res) => {
   catch { res.writeHead(404); res.end('404'); }
 }).listen(0);
 const BASE = `http://localhost:${server.address().port}/`;
+process.env.SUPABASE_URL = BASE + 'sb';
+process.env.SUPABASE_ANON_KEY = 'anon-test';
 
 /* ---------- Reconocimiento de voz simulado: deja una frase a medias hasta que lo frenan ---------- */
 const FAKE_SR = () => {
@@ -337,12 +448,12 @@ await fp.goto(BASE);
 await fp.evaluate(() => localStorage.setItem('acta.settings', JSON.stringify({ v: 2, segSec: 20, live: false })));
 await fp.reload();
 await step('Teléfono sin clave', async () => {
-  const saysMissing = await fp.waitForFunction(() => /Falta la clave/.test(document.querySelector('#health').textContent), null, { timeout: 5000 }).then(() => true, () => false);
+  const saysMissing = await fp.waitForFunction(() => /Falta la clave|Entrá a tu cuenta/.test(document.querySelector('#health').textContent), null, { timeout: 5000 }).then(() => true, () => false);
   check('Sin clave: el inicio lo dice claramente', saysMissing);
   await fp.tap('#btn-start');
   await fp.waitForSelector('#live:not([hidden])');
   await fp.waitForTimeout(24000);
-  check('Sin clave: aviso visible mientras graba', /Falta la clave/.test(await fp.textContent('#alerts')));
+  check('Sin clave: aviso visible mientras graba', /Falta la clave|Entrá a tu cuenta/.test(await fp.textContent('#alerts')));
   await stopRec(fp);
   await fp.waitForTimeout(800);
   check('Sin clave: el detalle explica por qué no hay texto y lleva a Ajustes', /Todavía no se transcribe/.test(await fp.textContent('#d-progress')) && !!(await fp.$('#d-progress [data-go="settings"]')));
@@ -378,7 +489,7 @@ await step('Teléfono sin clave', async () => {
   const saysWrong = await fp.waitForFunction(() => /no coincide/.test(document.querySelector('#health').textContent), null, { timeout: 5000 }).then(() => true, () => false);
   check('Clave equivocada: el inicio dice que no coincide', saysWrong);
   await fp.click('.tab[data-go="settings"]');
-  const ver = await fp.waitForFunction(() => /5 · 25\/11\/2026/.test(document.querySelector('#storage-kv').textContent), null, { timeout: 5000 }).then(() => true, () => false);
+  const ver = await fp.waitForFunction(() => /6 · 26\/11\/2026/.test(document.querySelector('#storage-kv').textContent), null, { timeout: 5000 }).then(() => true, () => false);
   check('Ajustes muestra la versión de la app', ver);
 });
 
@@ -491,6 +602,93 @@ await step('Fidelidad', async () => {
   const plain = await fx.evaluate(() => document.querySelector('#d-transcript').textContent);
   check('No quedan textos inventados', !/Amara/.test(plain));
   await fx.screenshot({ path: `${OUT}/10-fidelidad-1440.png`, fullPage: true });
+});
+
+/* =========================================================
+   G) CUENTA Y SINCRONIZACIÓN: PC y teléfono con los mismos datos
+   ========================================================= */
+const pcC = await browser.newContext({ viewport: { width: 1440, height: 900 }, permissions: ['microphone'] });
+const phC = await browser.newContext({
+  viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, permissions: ['microphone'],
+  userAgent: 'Mozilla/5.0 (Linux; Android 14; SM-A546E) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36',
+});
+const gpc = await pcC.newPage(); watch(gpc);
+const gph = await phC.newPage(); watch(gph);
+const login = async (pg, mode) => {
+  await pg.click('.tab[data-go="settings"]');
+  await pg.waitForSelector('#cloud-form');
+  await pg.fill('#cloud-form [name=email]', 'diego@test.com');
+  await pg.fill('#cloud-form [name=password]', 'secreta123');
+  await pg.click(mode === 'up' ? '#btn-signup' : '#cloud-form button[type=submit]');
+  return pg.waitForFunction(() => window.__acta.CLOUD.session?.access_token, null, { timeout: 8000 }).then(() => true, () => false);
+};
+const syncNow = (pg) => pg.evaluate(() => window.__acta.sync());
+await step('Sincronización', async () => {
+  for (const pg of [gpc, gph]) { await pg.goto(BASE); await pg.evaluate(() => localStorage.setItem('acta.settings', JSON.stringify({ v: 3, segSec: 0, live: false }))); await pg.reload(); }
+  check('Nube: crear cuenta en la PC', await login(gpc, 'up'));
+  const conn = await gpc.waitForFunction(() => /Transcripción conectada/.test(document.querySelector('#health').textContent) || true, null, { timeout: 3000 }).then(() => true);
+  await gpc.click('.tab[data-go="rec"]');
+  const health = await gpc.waitForFunction(() => /Transcripción conectada/.test(document.querySelector('#health').textContent), null, { timeout: 6000 }).then(() => true, () => false);
+  check('Nube: con la cuenta se transcribe sin clave APP_TOKEN', conn && health);
+  await gpc.click('#btn-start');
+  await gpc.waitForTimeout(34000);
+  await stopRec(gpc);
+  await gpc.waitForTimeout(6000);
+  await syncNow(gpc); await syncNow(gpc);
+  const m = SB.tables.meetings, b = SB.tables.blocks;
+  check('Nube: la reunión de la PC queda en la nube', m.length === 1 && m[0].data.title, m[0]?.data.title);
+  check('Nube: el texto transcripto queda en la nube', b.length >= 2 && b.every((x) => x.data.status === 'done') && b.some((x) => (x.data.result || []).length), `${b.length} bloques`);
+  check('Nube: el audio se sube por tramos', SB.tables.audio_slices.length >= 1 && [...SB.files.values()].every((f) => f.length > 1000), `${SB.tables.audio_slices.length} tramo(s), ${[...SB.files.values()].reduce((n, f) => n + f.length, 0)} bytes`);
+
+  check('Nube: entrar en el teléfono con la misma cuenta', await login(gph, 'in'));
+  await syncNow(gph);
+  await gph.click('.tab[data-go="list"]');
+  await gph.waitForTimeout(500);
+  check('Teléfono: ve la reunión grabada en la PC', (await gph.$$('#list .item')).length === 1 && /computadora/.test(await gph.textContent('#list')));
+  const callsBefore = calls;
+  await gph.click('#list .item');
+  await gph.waitForSelector('#d-transcript');
+  check('Teléfono: ve el texto de la reunión de la PC', /relevamiento del proceso/.test(await gph.textContent('#d-transcript')));
+  await gph.click('#d-fetch-audio');
+  await gph.waitForSelector('#d-audio', { timeout: 15000 });
+  const dur = await gph.evaluate(() => new Promise((res) => { const a = document.querySelector('#d-audio'); const done = () => res(a.duration); if (a.duration && a.duration !== Infinity) done(); else { a.addEventListener('durationchange', () => { if (a.duration !== Infinity) done(); }); setTimeout(done, 5000); } }));
+  check('Teléfono: escucha el audio bajado de la nube', dur > 25 && dur !== Infinity, `${Math.round(dur)} s`);
+  await gph.waitForTimeout(2500);
+  check('Teléfono: no retranscribe lo que grabó la PC', calls === callsBefore && SB.tables.blocks.every((x) => x.data.status === 'done' && x.data.note !== 'sin audio'));
+
+  await gph.fill('#d-title', 'Relevamiento Valtti');
+  await gph.dispatchEvent('#d-title', 'change');
+  await gph.waitForTimeout(600);
+  await syncNow(gph); await syncNow(gpc);
+  const pcS = (await getAll(gpc, 'sessions'))[0];
+  check('PC: recibe el título editado en el teléfono', pcS.title === 'Relevamiento Valtti', pcS.title);
+  check('PC: su reunión no se pisa con datos viejos', pcS.status === 'stopped' && (pcS.parts || []).length === 1);
+
+  await gph.click('.tab[data-go="rec"]');
+  await gph.tap('#btn-start');
+  await gph.waitForTimeout(5000);
+  await stopRec(gph);
+  await syncNow(gph); await syncNow(gpc);
+  await gpc.click('.tab[data-go="list"]');
+  await gpc.waitForTimeout(500);
+  check('PC: ve la reunión grabada en el teléfono', (await gpc.$$('#list .item')).length === 2 && /teléfono/.test(await gpc.textContent('#list')));
+
+  // Papelera y borrado definitivo desde la PC
+  await gpc.click('#list .item >> text=Relevamiento Valtti');
+  await gpc.click('#d-trash'); await gpc.click('#dlg button[value="ok"]');
+  await gpc.waitForTimeout(600);
+  await syncNow(gpc); await syncNow(gph);
+  await gph.click('.tab[data-go="list"]'); await gph.waitForTimeout(400);
+  check('Teléfono: lo que se manda a la papelera en la PC desaparece', !/Relevamiento Valtti/.test(await gph.textContent('#list')));
+  const sid = pcS.id;
+  await gpc.click('.tab[data-go="settings"]'); await gpc.click('[data-go="trash"]');
+  await gpc.click(`[data-purge="${sid}"]`); await gpc.click('#dlg button[value="ok"]');
+  await gpc.waitForTimeout(800);
+  await syncNow(gpc); await syncNow(gph);
+  check('Nube: el borrado definitivo quita texto y audio de la nube', !SB.tables.blocks.some((x) => x.meeting_id === sid) && !SB.tables.audio_slices.some((x) => x.meeting_id === sid) && ![...SB.files.keys()].some((k) => k.includes(sid)));
+  check('Teléfono: el borrado definitivo también se aplica en el teléfono', !(await gph.evaluate((id) => new Promise((res) => { const r = indexedDB.open('acta'); r.onsuccess = () => { const q = r.result.transaction('sessions').objectStore('sessions').get(id); q.onsuccess = () => res(!!q.result); }; }), sid)));
+  check('Nube: la reunión del teléfono sigue intacta', SB.tables.meetings.some((x) => x.data.device === 'teléfono' && !x.deleted));
+  await gph.screenshot({ path: `${OUT}/11-cuenta-telefono.png`, fullPage: true });
 });
 
 const bad = await fetch(BASE + 'api/transcribe', { headers: { 'x-app-token': 'mala' } });

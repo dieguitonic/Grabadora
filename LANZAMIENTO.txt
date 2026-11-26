@@ -95,6 +95,26 @@ ESTRUCTURA
   - Podés continuar una reunión ya terminada todas las veces que quieras (cada vez suma una parte).
   - Espacio: unos 58 MB de audio por cada 4 h (más una copia de respaldo del mismo tamaño).
 
+6c) CUENTA Y NUBE (Supabase): mismas reuniones en el teléfono y en la PC
+  Plan gratis: 1 GB de archivos (unas 70 horas de audio), 500 MB de base de datos.
+  El proyecto gratis se pausa si pasa 1 semana sin uso: se reactiva desde supabase.com y no se
+  pierde nada (y la app sigue grabando en el dispositivo mientras tanto).
+  1. supabase.com > New project. Región: South America (São Paulo). Guardá la contraseña de la base.
+  2. SQL Editor > New query > pegá TODO el archivo sql/supabase.sql > Run. Tiene que decir "Success".
+  3. Authentication > Sign In / Providers > Email: desactivá "Confirm email".
+  4. Project Settings > API: copiá "Project URL" y la clave "anon public".
+  5. Vercel > Settings > Environment Variables (Production):
+       SUPABASE_URL       = Project URL
+       SUPABASE_ANON_KEY  = clave anon public
+       ALLOWED_EMAILS     = tu email (solo esa cuenta puede transcribir)
+     Después: Deployments > Redeploy.
+  6. App en la PC > Ajustes > Cuenta > email y contraseña > "Crear cuenta".
+     En el teléfono: Ajustes > Cuenta > mismo email y contraseña > "Entrar".
+  7. Supabase > Authentication > Settings: desactivá "Allow new users to sign up" (nadie más puede crear cuentas).
+  8. Grabaciones viejas: abrí también la app vieja (dirección anterior) y entrá con la cuenta.
+     Sube sola lo que tenía y aparece en la app nueva.
+  Con la cuenta ya no hace falta la clave APP_TOKEN en cada dispositivo.
+
 6b) SUBDOMINIO PROPIO (dominio comprado en Cloudflare)
   La app sigue alojada en Vercel (ahí corre la función de transcripción). Cloudflare solo
   apunta el subdominio. No hay que cambiar código.

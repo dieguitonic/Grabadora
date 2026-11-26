@@ -1,26 +1,14 @@
 // Función serverless de Vercel: recibe un bloque de audio y lo transcribe con Whisper.
 // La clave del proveedor vive solo en el servidor (variables de entorno).
-//   APP_TOKEN     clave compartida con la app (obligatoria)
+//   SUPABASE_URL / SUPABASE_ANON_KEY  si hay cuenta: se autoriza con la sesión del usuario
+//   ALLOWED_EMAILS  opcional: emails que pueden transcribir (separados por coma)
+//   APP_TOKEN     clave compartida con la app (compatibilidad, opcional si hay cuenta)
 //   STT_API_KEY   clave de Groq (o de OpenAI)           — también acepta GROQ_API_KEY
 //   STT_BASE_URL  por defecto https://api.groq.com/openai/v1
 //   STT_MODEL     por defecto whisper-large-v3
-import { timingSafeEqual } from 'node:crypto';
+import { authorize, json } from './_auth.js';
 
 const MAX_BYTES = 4_400_000; // límite de cuerpo de Vercel: 4,5 MB
-const json = (body, status = 200, extra = {}) =>
-  new Response(JSON.stringify(body), {
-    status,
-    headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', ...extra },
-  });
-
-function authorized(request) {
-  const expected = process.env.APP_TOKEN || '';
-  const got = request.headers.get('x-app-token') || '';
-  if (!expected) return { ok: false, res: json({ error: 'Falta APP_TOKEN en el servidor' }, 500) };
-  const a = Buffer.from(got), b = Buffer.from(expected);
-  if (a.length !== b.length || !timingSafeEqual(a, b)) return { ok: false, res: json({ error: 'Clave inválida' }, 401) };
-  return { ok: true };
-}
 
 const provider = () => ({
   key: process.env.STT_API_KEY || process.env.GROQ_API_KEY || '',
@@ -29,7 +17,7 @@ const provider = () => ({
 });
 
 export async function GET(request) {
-  const auth = authorized(request);
+  const auth = await authorize(request);
   if (!auth.ok) return auth.res;
   const p = provider();
   if (!p.key) return json({ error: 'Falta STT_API_KEY en el servidor' }, 500);
@@ -37,7 +25,7 @@ export async function GET(request) {
 }
 
 export async function POST(request) {
-  const auth = authorized(request);
+  const auth = await authorize(request);
   if (!auth.ok) return auth.res;
   const p = provider();
   if (!p.key) return json({ error: 'Falta STT_API_KEY en el servidor' }, 500);

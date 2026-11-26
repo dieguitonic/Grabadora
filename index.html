@@ -314,6 +314,10 @@ dialog::backdrop{background:rgba(16,17,20,.45)}
 
   <!-- AJUSTES -->
   <section class="view" id="v-settings" hidden aria-label="Ajustes">
+    <div class="card form sec" id="cloud-card">
+      <h2>Cuenta</h2>
+      <div id="cloud-body"></div>
+    </div>
     <form class="card form sec" id="settings-form" novalidate>
       <h2>Transcripción</h2>
       <label class="field"><span>Servidor de transcripción</span>
@@ -413,8 +417,8 @@ dialog::backdrop{background:rgba(16,17,20,.45)}
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
 <script type="module">
-import * as C from './core.js?v=5';
-const APP_VERSION = '5 · 25/11/2026';
+import * as C from './core.js?v=6';
+const APP_VERSION = '6 · 26/11/2026';
 
 /* =========================================================
    Utilidades
@@ -482,7 +486,7 @@ const tagRules = () => [...C.TAG_RULES, ...C.parseCustomTags(settings.customTags
 let db;
 function openDB() {
   return new Promise((res, rej) => {
-    const r = indexedDB.open('acta', 2);
+    const r = indexedDB.open('acta', 3);
     r.onupgradeneeded = () => {
       // Cada almacén se crea solo si falta: actualizar nunca toca las grabaciones existentes.
       const d = r.result;
@@ -501,6 +505,7 @@ function openDB() {
       if (!has('lines')) d.createObjectStore('lines', { autoIncrement: true }).createIndex('sid', 'sid');
       if (!has('marks')) d.createObjectStore('marks', { autoIncrement: true }).createIndex('sid', 'sid');
       if (!has('kv')) d.createObjectStore('kv');
+      if (!has('outbox')) d.createObjectStore('outbox', { keyPath: 'id' });
     };
     r.onsuccess = () => { const d = r.result; d.onversionchange = () => d.close(); res(d); };
     r.onerror = () => rej(r.error);
@@ -509,10 +514,15 @@ function openDB() {
 }
 const reqP = (r) => new Promise((res, rej) => { r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
 const txDone = (t) => new Promise((res, rej) => { t.oncomplete = () => res(); t.onerror = () => rej(t.error); t.onabort = () => rej(t.error || new Error('Transacción abortada')); });
-async function dbPut(name, value, key, strict = false) {
+const SYNCED = new Set(['sessions', 'segments', 'marks', 'lines']);
+/** opts.remote: el dato viene de la nube (no se vuelve a subir ni cambia su fecha). */
+async function dbPut(name, value, key, strict = false, opts = {}) {
+  const synced = SYNCED.has(name) && !opts.remote;
+  if (synced) value.updatedAt = Date.now();
   const t = db.transaction(name, 'readwrite', strict ? { durability: 'strict' } : undefined);
   const r = key === undefined ? t.objectStore(name).put(value) : t.objectStore(name).put(value, key);
   await txDone(t);
+  if (synced) queueSync(name, key === undefined ? r.result : key);
   return r.result;
 }
 const dbGet = (name, key) => reqP(db.transaction(name).objectStore(name).get(key));
@@ -762,7 +772,7 @@ async function startRecording(resume) {
   } else {
     const client = $('#client').value.trim();
     R.session = {
-      id: uid(), createdAt: now, client, title: C.defaultTitle(now, client), titleManual: false,
+      id: uid(), createdAt: now, client, title: C.defaultTitle(now, client), titleManual: false, deviceId: CLOUD.deviceId, device: IS_ANDROID ? 'teléfono' : 'computadora',
       tags: [], userTags: [], hiddenTags: [], status: 'recording', durationMs: 0, mime: R.mime,
       parts: [], endedAt: null, deleted: false, searchText: '', liveText: '',
     };
@@ -889,7 +899,8 @@ async function emergencyExport(s) {
 async function addMark(text, type = 'user') {
   if (!R.session) return;
   const m = { sid: R.sid, ms: Math.round(activeMs()), text, type, at: Date.now() };
-  try { m.key = await dbPut('marks', { sid: m.sid, ms: m.ms, text, type, at: m.at }); } catch { /* se ve igual en pantalla */ }
+  m.uid = uid();
+  try { m.key = await dbPut('marks', { sid: m.sid, ms: m.ms, text, type, at: m.at, uid: m.uid }); } catch { /* se ve igual en pantalla */ }
   R.marks.push(m);
   appendLine({ kind: 'mark', ms: m.ms, text, type, key: m.key });
 }
@@ -1024,15 +1035,15 @@ async function commitLive(text, run, ms) {
   const r = C.mergeLiveFinal(R.live, text, ms ?? Math.round(activeMs()), run);
   if (r.op === 'skip') return;
   if (r.op === 'add') {
-    const line = { ...r.line, sid: R.sid, end: Math.round(activeMs()) };
+    const line = { ...r.line, sid: R.sid, end: Math.round(activeMs()), uid: uid() };
     R.live.push(line);
-    try { line.key = await dbPut('lines', { sid: line.sid, ms: line.ms, end: line.end, text: line.text, run }); } catch { /* queda en memoria */ }
+    try { line.key = await dbPut('lines', { sid: line.sid, ms: line.ms, end: line.end, text: line.text, run, uid: line.uid }); } catch { /* queda en memoria */ }
     appendLine({ kind: 'draft', ms: line.ms, text: line.text });
   } else {
     const line = R.live[r.index];
     line.text = r.line.text;
     line.end = Math.round(activeMs());
-    if (line.key !== undefined) dbPut('lines', { sid: line.sid, ms: line.ms, end: line.end, text: line.text, run }, line.key).catch(() => {});
+    if (line.key !== undefined) dbPut('lines', { sid: line.sid, ms: line.ms, end: line.end, text: line.text, run, uid: line.uid }, line.key).catch(() => {});
     const drafts = $$('#live-t .line.draft');
     const last = drafts[drafts.length - 1];
     if (last) last.querySelector('p').textContent = line.text;
@@ -1045,7 +1056,9 @@ async function commitLive(text, run, ms) {
 const P = { busy: false, blocked: '', checkedAt: 0 };
 /** Por qué la cola no puede transcribir ahora ('' si puede). */
 function queueReason() {
-  if (!settings.token) return 'Falta la clave del servidor en este dispositivo. Cargala en Ajustes o abrí el enlace de configuración desde la PC.';
+  if (!settings.token && !loggedIn()) return cloudOn()
+    ? 'Entrá a tu cuenta en Ajustes para transcribir y tener tus reuniones en todos tus dispositivos.'
+    : 'Falta la clave del servidor en este dispositivo. Cargala en Ajustes o abrí el enlace de configuración desde la PC.';
   if (P.blocked) return P.blocked;
   if (!navigator.onLine) return 'Sin internet: se transcribe solo cuando vuelva la conexión.';
   return '';
@@ -1053,12 +1066,13 @@ function queueReason() {
 /** Verifica el servidor y deja el motivo exacto si algo falla. Se reintenta solo cada 2 min. */
 async function checkServer() {
   P.checkedAt = Date.now();
-  if (!settings.token || !navigator.onLine) { renderHealth(); renderSync(); return; }
+  if ((!settings.token && !loggedIn()) || !navigator.onLine) { renderHealth(); renderSync(); return; }
   try {
-    const r = await fetch(settings.endpoint, { headers: { 'x-app-token': settings.token }, cache: 'no-store' });
+    const r = await fetch(settings.endpoint, { headers: await serverHeaders(), cache: 'no-store' });
     const j = await r.json().catch(() => ({}));
     if (r.ok) P.blocked = '';
-    else if (r.status === 401 && j.error) P.blocked = 'La clave de este dispositivo no coincide con la del servidor (APP_TOKEN). Si la cambiaste en Vercel, hacé Redeploy.';
+    else if (r.status === 401 && j.error) P.blocked = loggedIn() && !settings.token ? 'Tu sesión venció o el servidor no tiene configurada la cuenta (SUPABASE_URL). Volvé a entrar.' : 'La clave de este dispositivo no coincide con la del servidor (APP_TOKEN). Si la cambiaste en Vercel, hacé Redeploy.';
+    else if (r.status === 403 && j.error) P.blocked = j.error;
     else if (r.status === 401 || r.status === 403) P.blocked = `Vercel bloquea el acceso a ${location.host} (Deployment Protection o dirección de prueba). Abrí la app desde la dirección principal del proyecto o desactivá la protección en Vercel.`;
     else if (r.status === 404 || r.status === 405) P.blocked = 'No se encontró el servidor de transcripción. Revisá la dirección en Ajustes.';
     else P.blocked = `El servidor de transcripción falla: ${j.error || 'error ' + r.status}. Revisá las variables en Vercel y hacé Redeploy.`;
@@ -1069,7 +1083,7 @@ async function checkServer() {
 async function pumpQueue() {
   if (P.busy || !db) return;
   if (P.blocked && Date.now() - P.checkedAt > 120000) { checkServer(); return; }
-  if (!navigator.onLine || !settings.endpoint || !settings.token || P.blocked) { renderSync(); return; }
+  if (!navigator.onLine || !settings.endpoint || (!settings.token && !loggedIn()) || P.blocked) { renderSync(); return; }
   P.busy = true; renderSync();
   try {
     for (;;) {
@@ -1085,7 +1099,7 @@ async function nextSegment() {
   const now = Date.now();
   const [pend, err, sessions] = await Promise.all([dbAll('segments', 'status', 'pending'), dbAll('segments', 'status', 'error'), dbAll('sessions')]);
   const byId = new Map(sessions.map((s) => [s.id, s]));
-  const list = [...pend, ...err].filter((s) => (!s.nextTry || s.nextTry <= now) && byId.has(s.sid) && !byId.get(s.sid).deleted);
+  const list = [...pend, ...err].filter((s) => (!s.nextTry || s.nextTry <= now) && byId.has(s.sid) && !byId.get(s.sid).deleted && isLocalSession(byId.get(s.sid)));
   list.sort((a, b) => (b.sid === R.sid) - (a.sid === R.sid) || byId.get(a.sid).createdAt - byId.get(b.sid).createdAt || a.idx - b.idx);
   return list[0] || null;
 }
@@ -1121,7 +1135,11 @@ async function draftWordsIn(sid, a, b) {
 async function transcribeSegment(seg) {
   const save = async (g = seg) => { await dbPut('segments', g); onSegmentChange(g); };
   const cur = await segmentPcm(seg);
-  if (!cur.rows.length) { Object.assign(seg, { status: 'done', result: [], note: 'sin audio' }); await save(); return true; }
+  if (!cur.rows.length) {
+    const owner = await dbGet('sessions', seg.sid);
+    if (owner && !isLocalSession(owner)) return true; // lo transcribe el dispositivo que grabó
+    Object.assign(seg, { status: 'done', result: [], note: 'sin audio' }); await save(); return true;
+  }
 
   // ¿El bloque anterior salió recortado? Se transcribe de nuevo unido a este, con más contexto de audio.
   const prev = seg.idx > 0 ? await dbGet('segments', [seg.sid, seg.idx - 1]) : null;
@@ -1155,7 +1173,7 @@ async function transcribeSegment(seg) {
   let res;
   try {
     const signal = AbortSignal.timeout ? AbortSignal.timeout(90000) : undefined;
-    res = await fetch(settings.endpoint, { method: 'POST', headers: { 'x-app-token': settings.token }, body: fd, signal });
+    res = await fetch(settings.endpoint, { method: 'POST', headers: await serverHeaders(), body: fd, signal });
   } catch { return fail('Sin conexión con el servidor'); }
   if (res.status === 401) { P.blocked = 'La clave de este dispositivo no coincide con la del servidor (APP_TOKEN). Corregila en Ajustes.'; P.checkedAt = Date.now(); return fail('Clave inválida', 60000); }
   if (res.status === 404 || res.status === 405) { P.blocked = 'No se encontró el servidor de transcripción. Revisá la dirección en Ajustes.'; P.checkedAt = Date.now(); return fail('Servidor no encontrado', 60000); }
@@ -1216,6 +1234,397 @@ function retag(s, text) {
 const visibleTags = (s) => [...new Set([...(s.tags || []).filter((t) => !(s.hiddenTags || []).includes(t)), ...(s.userTags || [])])];
 
 /* =========================================================
+   Nube: cuenta y sincronización (Supabase). Todo se guarda primero en el dispositivo;
+   la nube copia y comparte. Sin cuenta, la app funciona igual que antes.
+   ========================================================= */
+const CLOUD = { url: '', anon: '', session: null, deviceId: '', busy: false, lastSync: 0, error: '', pending: 0 };
+const cloudOn = () => !!(CLOUD.url && CLOUD.anon);
+const loggedIn = () => !!(cloudOn() && CLOUD.session && CLOUD.session.access_token);
+/** Grabada en este dispositivo (las que llegan de la nube no se transcriben ni se suben acá). */
+const isLocalSession = (s) => !!s && !s.fromCloud && (!s.deviceId || s.deviceId === CLOUD.deviceId);
+const SLICE_LIVE = 150;   // ~5 min de audio por tramo mientras se graba
+const SLICE_MAX = 600;    // ~20 min por tramo al cerrar (≈ 5 MB, lejos del límite de 50 MB)
+
+async function serverHeaders() {
+  const h = {};
+  if (settings.token) h['x-app-token'] = settings.token;
+  const tok = await accessToken();
+  if (tok) h.authorization = `Bearer ${tok}`;
+  return h;
+}
+
+async function initCloud() {
+  CLOUD.deviceId = (await dbGet('kv', 'deviceId').catch(() => null)) || store.get('deviceId') || uid();
+  dbPut('kv', CLOUD.deviceId, 'deviceId').catch(() => {});
+  store.set('deviceId', CLOUD.deviceId);
+  try {
+    const r = await fetch('/api/config', { cache: 'no-store' });
+    if (r.ok) {
+      const j = await r.json();
+      CLOUD.url = String(j.supabaseUrl || '').replace(/\/$/, '');
+      CLOUD.anon = String(j.supabaseAnonKey || '');
+      dbPut('kv', { url: CLOUD.url, anon: CLOUD.anon }, 'cloudConfig').catch(() => {});
+    }
+  } catch {
+    const c = await dbGet('kv', 'cloudConfig').catch(() => null); // sin internet: la última conocida
+    if (c) { CLOUD.url = c.url; CLOUD.anon = c.anon; }
+  }
+  let saved = await dbGet('kv', 'auth').catch(() => null);
+  if (!saved) { try { saved = JSON.parse(store.get('auth') || 'null'); } catch { saved = null; } }
+  CLOUD.session = saved && saved.access_token ? saved : null;
+  // Las grabaciones locales sin dueño son de este dispositivo
+  for (const s of await dbAll('sessions')) {
+    if (!s.deviceId && !s.fromCloud) { s.deviceId = CLOUD.deviceId; await dbPut('sessions', s, undefined, false, { remote: true }); }
+  }
+}
+
+function authErrorText(j, status) {
+  const m = String(j.error_description || j.msg || j.message || j.error || '').toLowerCase();
+  if (m.includes('invalid login') || m.includes('invalid credentials')) return 'Email o contraseña incorrectos.';
+  if (m.includes('already registered') || m.includes('already exists')) return 'Ese email ya tiene cuenta: usá "Entrar".';
+  if (m.includes('signup') && (m.includes('disabled') || m.includes('not allowed'))) return 'La creación de cuentas está desactivada en Supabase.';
+  if (m.includes('email not confirmed')) return 'Falta confirmar el email: revisá tu correo o desactivá "Confirm email" en Supabase.';
+  if (m.includes('password')) return 'La contraseña debe tener al menos 6 caracteres.';
+  if (m.includes('email')) return 'Revisá el email.';
+  return `No se pudo (${status}). ${j.msg || j.error_description || j.message || ''}`.trim();
+}
+async function authReq(path, body) {
+  const r = await fetch(`${CLOUD.url}/auth/v1/${path}`, { method: 'POST', headers: { apikey: CLOUD.anon, 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) { const e = new Error(authErrorText(j, r.status)); e.status = r.status; throw e; }
+  return j;
+}
+function setSession(j) {
+  CLOUD.session = {
+    access_token: j.access_token, refresh_token: j.refresh_token,
+    expires_at: Date.now() + (Number(j.expires_in) || 3600) * 1000,
+    email: j.user?.email || CLOUD.session?.email || '', user_id: j.user?.id || CLOUD.session?.user_id || '',
+  };
+  dbPut('kv', CLOUD.session, 'auth').catch(() => {});
+  store.set('auth', JSON.stringify(CLOUD.session));
+}
+function clearSession() {
+  CLOUD.session = null;
+  dbPut('kv', null, 'auth').catch(() => {});
+  store.del('auth');
+}
+async function signUp(email, password) {
+  const j = await authReq('signup', { email, password });
+  if (!j.access_token) throw new Error('Cuenta creada, pero Supabase pide confirmar el email. Confirmalo desde tu correo (o desactivá "Confirm email") y tocá Entrar.');
+  setSession(j); await afterLogin();
+}
+async function signIn(email, password) { setSession(await authReq('token?grant_type=password', { email, password })); await afterLogin(); }
+async function afterLogin() {
+  CLOUD.error = ''; P.blocked = '';
+  await queueEverything();
+  renderCloud(); renderHealth(); checkServer(); scheduleSync(0);
+}
+async function accessToken() {
+  if (!loggedIn()) return '';
+  if (Date.now() > CLOUD.session.expires_at - 60000) {
+    try { setSession(await authReq('token?grant_type=refresh_token', { refresh_token: CLOUD.session.refresh_token })); }
+    catch (e) {
+      if (e.status >= 400 && e.status < 500) { clearSession(); CLOUD.error = 'Tu sesión venció: volvé a entrar en Ajustes.'; renderCloud(); renderHealth(); return ''; }
+      // sin red: se usa la sesión actual y se reintenta después
+    }
+  }
+  return CLOUD.session?.access_token || '';
+}
+
+async function rest(method, path, body, prefer) {
+  const tok = await accessToken();
+  if (!tok) throw new Error('Sin sesión');
+  const h = { apikey: CLOUD.anon, authorization: `Bearer ${tok}` };
+  if (body !== undefined) h['content-type'] = 'application/json';
+  if (prefer) h.prefer = prefer;
+  const r = await fetch(`${CLOUD.url}/rest/v1/${path}`, { method, headers: h, body: body === undefined ? undefined : JSON.stringify(body) });
+  if (!r.ok) { const j = await r.json().catch(() => ({})); throw new Error(`la nube respondió ${r.status}${j.message ? ': ' + j.message : ''}`); }
+  if (r.status === 204) return null;
+  const txt = await r.text();
+  return txt ? JSON.parse(txt) : null;
+}
+const upsert = (table, rows, conflict) => rest('POST', `${table}?on_conflict=${conflict}`, rows, 'resolution=merge-duplicates,return=minimal');
+const enc = encodeURIComponent;
+async function storagePut(path, blob) {
+  const tok = await accessToken();
+  const r = await fetch(`${CLOUD.url}/storage/v1/object/audio/${path}`, { method: 'POST', headers: { apikey: CLOUD.anon, authorization: `Bearer ${tok}`, 'x-upsert': 'true', 'content-type': 'application/octet-stream' }, body: blob });
+  if (!r.ok) throw new Error(`no se pudo subir el audio (${r.status})`);
+}
+async function storageGet(path) {
+  const tok = await accessToken();
+  const r = await fetch(`${CLOUD.url}/storage/v1/object/authenticated/audio/${path}`, { headers: { apikey: CLOUD.anon, authorization: `Bearer ${tok}` } });
+  if (!r.ok) throw new Error(`no se pudo bajar el audio (${r.status})`);
+  return r.arrayBuffer();
+}
+async function storageDel(paths) {
+  if (!paths.length) return;
+  const tok = await accessToken();
+  await fetch(`${CLOUD.url}/storage/v1/object/audio`, { method: 'DELETE', headers: { apikey: CLOUD.anon, authorization: `Bearer ${tok}`, 'content-type': 'application/json' }, body: JSON.stringify({ prefixes: paths }) });
+}
+
+/* ---------- Cola de envíos (outbox) ---------- */
+function queueSync(name, key) {
+  if (!loggedIn()) return; // al entrar se encola todo
+  const t = db.transaction('outbox', 'readwrite');
+  t.objectStore('outbox').put({ id: `${name}:${JSON.stringify(key)}`, name, key, at: Date.now() });
+  scheduleSync(4000);
+}
+async function queueEverything() {
+  const t = db.transaction(['sessions', 'segments', 'marks', 'lines', 'outbox'], 'readwrite');
+  const out = t.objectStore('outbox');
+  const now = Date.now();
+  for (const name of ['sessions', 'segments', 'marks', 'lines']) {
+    const req = t.objectStore(name).getAllKeys();
+    req.onsuccess = () => { for (const key of req.result) out.put({ id: `${name}:${JSON.stringify(key)}`, name, key, at: now }); };
+  }
+  await txDone(t);
+}
+const cleanSession = (v) => { const { fromCloud, audioSynced, ...rest } = v; return rest; };
+async function flushOutbox() {
+  const items = (await dbAll('outbox')).sort((a, b) => a.at - b.at).slice(0, 300);
+  if (!items.length) return;
+  const meetings = new Map(), blocks = [], notes = [], purges = [];
+  const addMeeting = async (sid) => {
+    if (meetings.has(sid)) return true;
+    const v = await dbGet('sessions', sid);
+    if (!v || !isLocalSession(v) && !v.updatedAt) return false;
+    meetings.set(sid, { id: v.id, data: cleanSession(v), deleted: !!v.deleted, updated_at: v.updatedAt || Date.now() });
+    return true;
+  };
+  for (const it of items) {
+    if (it.name === 'purge') { purges.push(it.key); continue; }
+    const v = await dbGet(it.name, it.key);
+    if (!v) continue;
+    if (it.name === 'sessions') { meetings.delete(v.id); await addMeeting(v.id); continue; }
+    if (!(await addMeeting(v.sid))) continue;
+    if (it.name === 'segments') blocks.push({ meeting_id: v.sid, idx: v.idx, data: v, updated_at: v.updatedAt || Date.now() });
+    else notes.push({ meeting_id: v.sid, kind: it.name === 'marks' ? 'mark' : 'line', key: v.uid || `${CLOUD.deviceId}-${it.key}`, data: { ...v, uid: v.uid || `${CLOUD.deviceId}-${it.key}` }, updated_at: v.updatedAt || Date.now() });
+  }
+  if (meetings.size) await upsert('meetings', [...meetings.values()], 'id');
+  if (blocks.length) await upsert('blocks', blocks, 'meeting_id,idx');
+  if (notes.length) await upsert('notes', notes, 'meeting_id,kind,key');
+  for (const sid of purges) await purgeRemote(sid);
+  // Se borran de la cola solo los que no cambiaron mientras se subían
+  const t = db.transaction('outbox', 'readwrite');
+  const os = t.objectStore('outbox');
+  for (const it of items) {
+    const g = os.get(it.id);
+    g.onsuccess = () => { if (g.result && g.result.at === it.at) os.delete(it.id); };
+  }
+  await txDone(t);
+}
+
+/* ---------- Audio a la nube, por tramos, mientras se graba ---------- */
+function chunkKeysAfter(sid, part, lastKey, max) {
+  return new Promise((res, rej) => {
+    const out = [];
+    const range = IDBKeyRange.only([sid, 'm', part]);
+    const req = db.transaction('chunks').objectStore('chunks').index('track').openKeyCursor(range);
+    let jumped = lastKey < 0;
+    req.onsuccess = () => {
+      const c = req.result;
+      if (!c) { res(out); return; }
+      if (!jumped) { jumped = true; if (c.primaryKey <= lastKey) { c.continuePrimaryKey([sid, 'm', part], lastKey + 1); return; } }
+      out.push(c.primaryKey);
+      if (out.length >= max) { res(out); return; }
+      c.continue();
+    };
+    req.onerror = () => rej(req.error);
+  });
+}
+async function chunkBufs(keys) {
+  const t = db.transaction('chunks');
+  const os = t.objectStore('chunks');
+  return Promise.all(keys.map((k) => reqP(os.get(k)).then((v) => v.buf)));
+}
+async function pushAudio() {
+  if (!CLOUD.session.user_id) return;
+  const sessions = (await dbAll('sessions')).filter((s) => isLocalSession(s) && !s.audioSynced && (s.parts || []).length);
+  for (const s of sessions) {
+    if (s.deleted) continue;
+    let pending = false;
+    for (const p of s.parts) {
+      const curKey = `slice:${s.id}:${p.part}`;
+      let cur = (await dbGet('kv', curKey).catch(() => null)) || { n: 0, lastKey: -1 };
+      const livePart = isActive() && R.sid === s.id && p.part === R.masterPart;
+      for (;;) {
+        const keys = await chunkKeysAfter(s.id, p.part, cur.lastKey, livePart ? SLICE_LIVE : SLICE_MAX);
+        if (!keys.length) break;
+        if (livePart && keys.length < SLICE_LIVE) { pending = true; break; }
+        const bufs = await chunkBufs(keys);
+        const blob = new Blob(bufs);
+        const path = `${CLOUD.session.user_id}/${s.id}/m${p.part}-${String(cur.n).padStart(5, '0')}.bin`;
+        await storagePut(path, blob);
+        await upsert('audio_slices', [{ meeting_id: s.id, part: p.part, n: cur.n, path, bytes: blob.size, chunks: keys.length }], 'meeting_id,part,n');
+        cur = { n: cur.n + 1, lastKey: keys[keys.length - 1] };
+        await dbPut('kv', cur, curKey);
+        if (livePart) { pending = true; break; }
+      }
+    }
+    if (!pending && !(isActive() && R.sid === s.id) && ['stopped', 'interrupted'].includes(s.status)) {
+      const fresh = await dbGet('sessions', s.id);
+      if (fresh && ['stopped', 'interrupted'].includes(fresh.status)) { fresh.audioSynced = true; await dbPut('sessions', fresh, undefined, false, { remote: true }); }
+    }
+  }
+}
+/** Baja el audio de una reunión grabada en otro dispositivo para escucharlo acá. */
+async function ensureLocalAudio(sid, onProgress) {
+  if (!loggedIn()) throw new Error('entrá a tu cuenta');
+  const rows = await rest('GET', `audio_slices?select=part,n,path,bytes&meeting_id=eq.${enc(sid)}&order=part.asc,n.asc`);
+  if (!rows || !rows.length) return false;
+  const bufs = [];
+  for (const [i, row] of rows.entries()) { onProgress?.(i + 1, rows.length); bufs.push({ part: row.part, buf: await storageGet(row.path) }); }
+  const t = db.transaction('chunks', 'readwrite');
+  const os = t.objectStore('chunks');
+  for (const b of bufs) os.put({ sid, track: 'm', part: b.part, ms: 0, at: Date.now(), buf: b.buf, cloud: true });
+  await txDone(t);
+  return true;
+}
+
+/* ---------- Cambios desde la nube ---------- */
+async function pullTable(table, select, apply) {
+  const curKey = `pull:${table}`;
+  let since = (await dbGet('kv', curKey).catch(() => null)) || '1970-01-01T00:00:00.000Z';
+  for (;;) {
+    const rows = await rest('GET', `${table}?select=${select},synced_at&synced_at=gt.${enc(since)}&order=synced_at.asc&limit=500`);
+    if (!rows || !rows.length) break;
+    for (const row of rows) await apply(row);
+    since = rows[rows.length - 1].synced_at;
+    await dbPut('kv', since, curKey);
+    if (rows.length < 500) break;
+  }
+}
+let pulledSomething = false;
+async function pull() {
+  pulledSomething = false;
+  await pullTable('meetings', 'id,data,deleted,updated_at', async (m) => {
+    const local = await dbGet('sessions', m.id);
+    if (m.data && m.data.purged) { if (local && !(isActive() && R.sid === m.id)) { await purgeLocal(m.id); pulledSomething = true; } return; }
+    if (local && (local.updatedAt || 0) >= m.updated_at) return;
+    if (isActive() && R.sid === m.id) return; // nunca se toca la reunión que se está grabando acá
+    if (local && isLocalSession(local)) {
+      // Grabada acá: de la nube solo se toman las ediciones del usuario; el resto lo sabe este dispositivo.
+      const merged = { ...local, deleted: !!m.deleted };
+      for (const k of ['title', 'titleManual', 'userTags', 'hiddenTags', 'deletedAt', 'client']) if (k in m.data) merged[k] = m.data[k];
+      await dbPut('sessions', merged); // se vuelve a subir la versión completa y correcta
+      pulledSomething = true;
+      return;
+    }
+    const v = { ...m.data, id: m.id, deleted: !!m.deleted, updatedAt: m.updated_at };
+    v.fromCloud = local ? !!local.fromCloud : v.deviceId !== CLOUD.deviceId;
+    if (local) { v.audioSynced = local.audioSynced; }
+    await dbPut('sessions', v, undefined, false, { remote: true });
+    pulledSomething = true;
+  });
+  await pullTable('blocks', 'meeting_id,idx,data,updated_at', async (b) => {
+    const local = await dbGet('segments', [b.meeting_id, b.idx]);
+    if (local && (local.updatedAt || 0) >= b.updated_at) return;
+    const owner = await dbGet('sessions', b.meeting_id);
+    if (owner && isLocalSession(owner) && local) return; // lo de este dispositivo manda acá
+    await dbPut('segments', { ...b.data, sid: b.meeting_id, idx: b.idx, updatedAt: b.updated_at }, undefined, false, { remote: true });
+    pulledSomething = true;
+  });
+  await pullTable('notes', 'meeting_id,kind,key,data,updated_at', async (n) => {
+    const store_ = n.kind === 'mark' ? 'marks' : 'lines';
+    const existing = (await dbAllWithKeys(store_, 'sid', n.meeting_id)).find((x) => (x.uid || `${CLOUD.deviceId}-${x.key}`) === n.key);
+    if (existing && (existing.updatedAt || 0) >= n.updated_at) return;
+    const { key: _k, ...data } = n.data;
+    const val = { ...data, sid: n.meeting_id, uid: n.key, updatedAt: n.updated_at };
+    await dbPut(store_, val, existing ? existing.key : undefined, false, { remote: true });
+    pulledSomething = true;
+  });
+}
+
+/* ---------- Borrado definitivo ---------- */
+async function purgeLocal(sid) {
+  await dbDeleteWhere(['chunks', 'segments', 'lines', 'marks'], 'sid', IDBKeyRange.only(sid));
+  const t = db.transaction(['sessions', 'kv'], 'readwrite');
+  t.objectStore('sessions').delete(sid);
+  await txDone(t);
+}
+async function purgeRemote(sid) {
+  const rows = (await rest('GET', `audio_slices?select=path&meeting_id=eq.${enc(sid)}`)) || [];
+  await storageDel(rows.map((r) => r.path));
+  for (const table of ['audio_slices', 'notes', 'blocks']) await rest('DELETE', `${table}?meeting_id=eq.${enc(sid)}`);
+  // Se deja una marca mínima para que los otros dispositivos también la borren
+  await upsert('meetings', [{ id: sid, data: { purged: true }, deleted: true, updated_at: Date.now() }], 'id');
+}
+
+/* ---------- Ciclo de sincronización ---------- */
+let syncTimer = 0;
+function scheduleSync(ms = 3000) { clearTimeout(syncTimer); syncTimer = setTimeout(sync, ms); }
+async function sync() {
+  if (CLOUD.busy || !loggedIn() || !navigator.onLine) { renderCloud(); return; }
+  CLOUD.busy = true; renderCloud();
+  try {
+    await flushOutbox();
+    await pushAudio();
+    await pull();
+    CLOUD.lastSync = Date.now(); CLOUD.error = '';
+    if (pulledSomething) {
+      if (currentView === 'list') renderList();
+      if (currentView === 'rec') renderRecent();
+      if (currentView === 'detail' && D.sid) { const ds = await dbGet('sessions', D.sid); if (ds) renderDetail(D.sid, true); else go('list'); }
+      if (currentView === 'trash') renderTrash();
+      pumpQueue();
+    }
+  } catch (e) {
+    CLOUD.error = /Failed to fetch|NetworkError|Load failed/i.test(e.message) ? 'sin conexión con la nube (¿proyecto de Supabase en pausa?)' : e.message;
+  } finally {
+    CLOUD.pending = (await dbAll('outbox').catch(() => [])).length;
+    CLOUD.busy = false; renderCloud(); renderHealth();
+  }
+}
+
+/* ---------- Pantalla de cuenta ---------- */
+function renderCloud() {
+  const body = $('#cloud-body');
+  if (!body) return;
+  if (!cloudOn()) {
+    body.innerHTML = '<p class="help" style="margin:0">La nube todavía no está configurada en el servidor. Mientras tanto todo se guarda en este dispositivo. (Configuración: LANZAMIENTO.txt, paso "Cuenta y nube".)</p>';
+    return;
+  }
+  if (!loggedIn()) {
+    if ($('#cloud-form')) return; // no se pisa lo que se está escribiendo
+    body.innerHTML = `<form id="cloud-form" class="form" style="padding:0" novalidate>
+      <p class="help" style="margin:0">Con tu cuenta, tus reuniones (texto y audio) quedan en la nube y las ves en el teléfono y en la PC. Usá la misma cuenta en todos tus dispositivos.</p>
+      <label class="field"><span>Email</span><input class="input" name="email" type="email" autocomplete="username" inputmode="email" required></label>
+      <label class="field"><span>Contraseña</span><input class="input" name="password" type="password" autocomplete="current-password" minlength="6" required></label>
+      <div class="more"><button class="btn btn-primary" type="submit" value="in">Entrar</button><button class="btn" type="button" id="btn-signup">Crear cuenta</button></div>
+      <p class="help" id="cloud-msg" role="status">${esc(CLOUD.error)}</p>
+    </form>`;
+    const f = $('#cloud-form');
+    const go_ = async (fn) => {
+      const email = f.elements.email.value.trim(), pw = f.elements.password.value;
+      const msg = $('#cloud-msg');
+      if (!email || pw.length < 6) { msg.textContent = 'Completá el email y una contraseña de al menos 6 caracteres.'; return; }
+      $$('#cloud-form button').forEach((b) => { b.disabled = true; });
+      msg.textContent = 'Conectando…';
+      try { await fn(email, pw); toast('Cuenta conectada: sincronizando tus reuniones'); }
+      catch (e) { msg.textContent = /Failed to fetch/i.test(e.message) ? 'Sin conexión con la nube.' : e.message; }
+      finally { $$('#cloud-form button').forEach((b) => { b.disabled = false; }); }
+    };
+    f.addEventListener('submit', (e) => { e.preventDefault(); go_(signIn); });
+    $('#btn-signup').addEventListener('click', () => go_(signUp));
+    return;
+  }
+  const when = CLOUD.busy ? 'Sincronizando…' : CLOUD.lastSync ? `Sincronizado a las ${new Date(CLOUD.lastSync).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hour12: false })}` : 'Pendiente';
+  body.innerHTML = `<dl class="kv"><dt>Cuenta</dt><dd style="overflow-wrap:anywhere">${esc(CLOUD.session.email)}</dd>
+      <dt>Estado</dt><dd style="color:${CLOUD.error ? 'var(--warn)' : 'var(--ok)'}">${esc(CLOUD.error ? 'Con problemas' : when)}</dd>
+      <dt>Cambios por subir</dt><dd>${CLOUD.pending}</dd></dl>
+    ${CLOUD.error ? `<p class="help" style="color:var(--warn)">${esc(CLOUD.error)}</p>` : ''}
+    <div class="more"><button class="btn" type="button" id="btn-sync">Sincronizar ahora</button><button class="btn" type="button" id="btn-signout">Cerrar sesión</button></div>`;
+  $('#btn-sync').addEventListener('click', () => { CLOUD.error = ''; sync(); });
+  $('#btn-signout').addEventListener('click', async () => {
+    const ok = await dialog({ title: 'Cerrar sesión', body: 'Las reuniones quedan en este dispositivo y en la nube. Este dispositivo deja de sincronizar hasta que vuelvas a entrar.', ok: 'Cerrar sesión', cancel: 'Cancelar' });
+    if (!ok) return;
+    const tok = CLOUD.session?.access_token;
+    if (tok) fetch(`${CLOUD.url}/auth/v1/logout`, { method: 'POST', headers: { apikey: CLOUD.anon, authorization: `Bearer ${tok}` } }).catch(() => {});
+    clearSession(); renderCloud(); renderHealth(); renderSync();
+  });
+}
+
+/* =========================================================
    Recuperación tras cierre inesperado
    ========================================================= */
 async function recoverInterrupted() {
@@ -1224,7 +1633,7 @@ async function recoverInterrupted() {
     if (q.held?.some((l) => l.name === 'acta-rec')) return []; // otra pestaña está grabando de verdad
   }
   const all = await dbAll('sessions');
-  const broken = all.filter((s) => ['recording', 'paused', 'reconnecting', 'stopping'].includes(s.status));
+  const broken = all.filter((s) => isLocalSession(s) && ['recording', 'paused', 'reconnecting', 'stopping'].includes(s.status));
   for (const s of broken) {
     let lastMs = 0, lastAt = 0;
     for (const p of s.parts || []) {
@@ -1449,7 +1858,8 @@ async function renderHealth() {
   if (free < 300 * 1024 * 1024) items.push(['bad', `Poco espacio libre para la app (${C.formatBytes(free)})`]);
   items.push(persisted ? ['ok', 'Almacenamiento protegido: el sistema no lo borra'] : ['warn', 'Instalá la app en la pantalla de inicio para proteger las grabaciones']);
   const reason = queueReason();
-  items.push(reason ? [settings.token && navigator.onLine ? 'bad' : 'warn', reason] : ['ok', 'Transcripción conectada']);
+  items.push(reason ? [(settings.token || loggedIn()) && navigator.onLine ? 'bad' : 'warn', reason] : ['ok', 'Transcripción conectada']);
+  if (cloudOn()) items.push(loggedIn() ? [CLOUD.error ? 'warn' : 'ok', CLOUD.error ? `Nube: ${CLOUD.error}` : `Cuenta ${CLOUD.session.email}: reuniones sincronizadas en todos tus dispositivos`] : ['warn', 'Sin cuenta: tus reuniones quedan solo en este dispositivo']);
   items.push(liveAvailable() ? ['ok', 'Borrador en vivo disponible'] : ['', SR ? 'Borrador en vivo apagado: el texto llega por bloques' : 'Este navegador no tiene borrador en vivo: el texto llega por bloques']);
   $('#health').innerHTML = items.map(([k, t]) => `<li><span class="dot ${k}"></span><span>${esc(t)}</span></li>`).join('');
 }
@@ -1460,13 +1870,13 @@ async function renderSync() {
   const el = $('#sync');
   let cls = 'ok', txt = 'Todo transcripto';
   if (P.blocked) { cls = 'warn'; txt = 'Revisar Ajustes'; }
-  else if (!settings.token) { cls = 'warn'; txt = 'Sin servidor'; }
+  else if (!settings.token && !loggedIn()) { cls = 'warn'; txt = cloudOn() ? 'Sin cuenta' : 'Sin servidor'; }
   else if (n && !navigator.onLine) { cls = 'warn'; txt = `${n} en espera · sin internet`; }
   else if (n) { cls = P.busy ? 'busy' : 'warn'; txt = `${n} por transcribir`; }
   el.className = 'sync ' + cls;
   el.lastElementChild.textContent = txt;
   const reason = queueReason();
-  if (isActive() && reason) showAlert('queue', `${esc(reason)} La grabación sigue a salvo y se transcribe cuando se resuelva.`, settings.token && navigator.onLine ? 'bad' : 'warn');
+  if (isActive() && reason) showAlert('queue', `${esc(reason)} La grabación sigue a salvo y se transcribe cuando se resuelva.`, (settings.token || loggedIn()) && navigator.onLine ? 'bad' : 'warn');
   else clearAlert('queue');
 }
 
@@ -1479,7 +1889,7 @@ async function sessionStatus() {
   return map;
 }
 function queueBadge(st) {
-  if (!settings.token) return '<span class="badge warn">Falta la clave</span>';
+  if (!settings.token && !loggedIn()) return '<span class="badge warn">Falta la clave</span>';
   if (P.blocked) return '<span class="badge warn">Revisar Ajustes</span>';
   if (!navigator.onLine) return `<span class="badge warn">Sin internet · ${st.n}</span>`;
   if (st.err) return `<span class="badge warn">Reintentando · ${st.n}</span>`;
@@ -1490,11 +1900,13 @@ function itemHTML(s, st) {
   const hora = d.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hour12: false });
   let badge = '';
   if (s.id === R.sid && isActive()) badge = '<span class="badge rec">Grabando</span>';
+  else if (!isLocalSession(s) && ['recording', 'paused', 'reconnecting'].includes(s.status)) badge = `<span class="badge rec">Grabando en ${esc(s.device || 'otro dispositivo')}</span>`;
+  else if (st?.n && !isLocalSession(s)) badge = '<span class="badge busy">Transcribiendo en el otro dispositivo</span>';
   else if (st?.n) badge = queueBadge(st);
   else if (s.status === 'interrupted') badge = '<span class="badge warn">Recuperada</span>';
   const tags = visibleTags(s);
   return `<li><button class="item" data-open="${esc(s.id)}"><div class="item-top"><div><h3>${esc(s.title)}</h3>
-    <p class="meta tnum">${hora} h · ${C.formatDuration(s.durationMs)}</p></div>${badge}</div>
+    <p class="meta tnum">${hora} h · ${C.formatDuration(s.durationMs)}${s.device ? ' · ' + esc(s.device) : ''}</p></div>${badge}</div>
     ${tags.length ? `<div class="tags">${tags.map((t) => `<span class="tag">${esc(t)}</span>`).join('')}</div>` : ''}</button></li>`;
 }
 async function renderRecent() {
@@ -1548,6 +1960,9 @@ async function renderDetail(sid, soft = false) {
   const done = segments.filter((g) => g.status === 'done').length;
   const errs = segments.filter((g) => g.status === 'error');
   const recording = s.id === R.sid && isActive();
+  const local = isLocalSession(s);
+  const remoteLive = !local && ['recording', 'paused', 'reconnecting'].includes(s.status);
+  const hasAudio = !!(await lastChunk(s.id, 'm', (s.parts || [])[0]?.part ?? 0));
   const d = new Date(s.createdAt);
   const fecha0 = d.toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
   const fecha = fecha0.charAt(0).toUpperCase() + fecha0.slice(1);
@@ -1567,8 +1982,9 @@ async function renderDetail(sid, soft = false) {
   function progressHTML() {
     if (!segments.length) return '';
     if (done === segments.length) return `<p class="small muted">Transcripción completa · ${segments.length} bloques</p><div class="progress"><b style="width:100%"></b></div>`;
+    if (!local) return `<p class="small muted">${done} de ${segments.length} bloques con texto · se transcribe en ${esc(s.device || 'el dispositivo que grabó')}</p><div class="progress"><b style="width:${pct}%"></b></div>`;
     const reason = queueReason();
-    if (reason) return `<div class="banner ${settings.token && navigator.onLine ? 'bad' : ''}"><div><p><b>Todavía no se transcribe.</b> ${esc(reason)}</p><div class="actions"><button class="btn btn-sm btn-primary" data-go="settings">Ir a Ajustes</button></div></div></div><p class="small muted">${done} de ${segments.length} bloques con texto. El audio está guardado.</p>`;
+    if (reason) return `<div class="banner ${(settings.token || loggedIn()) && navigator.onLine ? 'bad' : ''}"><div><p><b>Todavía no se transcribe.</b> ${esc(reason)}</p><div class="actions"><button class="btn btn-sm btn-primary" data-go="settings">Ir a Ajustes</button></div></div></div><p class="small muted">${done} de ${segments.length} bloques con texto. El audio está guardado.</p>`;
     const msg = errs.length ? `Reintentando ${errs.length} bloque(s): ${esc(errs[0].error || '')}` : 'Transcribiendo…';
     return `<p class="small muted">${done} de ${segments.length} bloques · ${msg}</p><div class="progress"><b style="width:${pct}%"></b></div>`;
   }
@@ -1576,21 +1992,23 @@ async function renderDetail(sid, soft = false) {
     <div class="detail-head"><button class="icon-btn" data-back aria-label="Volver">${ICON.back}</button>
       <textarea class="title-input" id="d-title" rows="1" aria-label="Título" maxlength="90">${esc(s.title)}</textarea></div>
     <div class="facts tnum"><span>${esc(fecha)}</span><span>${hIni}${hFin ? '–' + hFin : ''} h</span><span>${C.formatDuration(s.durationMs)}</span>
-      ${s.status === 'interrupted' ? '<span class="badge warn">Recuperada tras un corte</span>' : ''}${recording ? '<span class="badge rec">Grabando ahora</span>' : ''}</div>
+      ${s.device ? `<span>Grabada en ${esc(s.device)}</span>` : ''}
+      ${s.status === 'interrupted' ? '<span class="badge warn">Recuperada tras un corte</span>' : ''}${recording ? '<span class="badge rec">Grabando ahora</span>' : ''}${remoteLive ? `<span class="badge rec">Grabando en ${esc(s.device || 'otro dispositivo')}</span>` : ''}</div>
     <div class="tags" id="d-tags">${tagsHTML}</div>
     <div class="sec" style="margin-top:var(--s-head)">
-      ${recording ? '<div class="card player"><p class="small muted" style="margin:0">El audio se puede escuchar al terminar la grabación.</p></div>' : `
+      ${recording || remoteLive ? '<div class="card player"><p class="small muted" style="margin:0">El audio se puede escuchar al terminar la grabación.</p></div>'
+      : !hasAudio ? `<div class="card player"><p class="small muted" style="margin:0 0 12px">El audio de esta reunión está en la nube.</p><button class="btn" id="d-fetch-audio">${ICON.audio}Descargar audio para escuchar</button><p class="help" id="d-fetch-msg" role="status"></p></div>` : `
       <div class="card player"><audio id="d-audio" controls preload="metadata"></audio>
         ${(s.parts || []).length > 1 ? `<div class="parts">${s.parts.map((p, i) => `<button class="chip" data-part="${i}" aria-pressed="${i === D.partIdx}">Parte ${i + 1}</button>`).join('')}</div><p class="help">La grabación tiene ${s.parts.length} partes (por un corte o porque la continuaste). Tocá una línea del texto para ir a ese momento.</p>` : ''}
       </div>`}
     </div>
     <div class="sec">
-      ${!recording && !isActive() ? '<button class="btn btn-continue" id="d-continue"><i></i>Seguir grabando en esta reunión</button>' : ''}
+      ${local && !recording && !isActive() ? '<button class="btn btn-continue" id="d-continue"><i></i>Seguir grabando en esta reunión</button>' : ''}
       <div class="actions-grid">
         <button class="btn btn-primary" id="d-claude">${ICON.copy}Copiar para Claude</button>
         <button class="btn" id="d-txt" aria-label="Descargar texto">${ICON.text}Texto</button>
-        <button class="btn" id="d-audio-dl" aria-label="Descargar audio" ${recording ? 'disabled' : ''}>${ICON.audio}Audio</button>
-        <button class="btn" id="d-share" ${recording ? 'disabled' : ''}>${ICON.share}Compartir</button>
+        <button class="btn" id="d-audio-dl" aria-label="Descargar audio" ${recording || !hasAudio ? 'disabled' : ''}>${ICON.audio}Audio</button>
+        <button class="btn" id="d-share" ${recording || !hasAudio ? 'disabled' : ''}>${ICON.share}Compartir</button>
       </div>
     </div>
     <div class="sec">
@@ -1600,10 +2018,10 @@ async function renderDetail(sid, soft = false) {
     </div>
     <div class="sec more">
       ${errs.length ? '<button class="btn btn-sm" id="d-retry">Reintentar ahora</button>' : ''}
-      ${!recording && segments.length ? '<button class="btn btn-sm" id="d-redo">Volver a transcribir</button>' : ''}
+      ${local && !recording && segments.length ? '<button class="btn btn-sm" id="d-redo">Volver a transcribir</button>' : ''}
       ${!recording ? '<button class="btn btn-sm" id="d-trash">Mover a papelera</button>' : ''}
     </div>`;
-  if (!recording) loadPart(s, D.partIdx);
+  if (!recording && hasAudio) loadPart(s, D.partIdx);
   bindDetail(s);
 }
 async function loadPart(s, idx) {
@@ -1711,6 +2129,14 @@ function bindDetail(s) {
     for (const g of segs) if (g.status === 'error') { g.nextTry = 0; g.status = 'pending'; await dbPut('segments', g); }
     P.blocked = ''; pumpQueue(); toast('Reintentando…');
   });
+  $('#d-fetch-audio')?.addEventListener('click', async (e) => {
+    const btn = e.currentTarget, msg = $('#d-fetch-msg');
+    btn.disabled = true; msg.textContent = 'Descargando…';
+    try {
+      const ok = await ensureLocalAudio(s.id, (n, total) => { msg.textContent = `Descargando ${n} de ${total}…`; });
+      if (ok) renderDetail(s.id); else { msg.textContent = 'El audio todavía no terminó de subir desde el otro dispositivo.'; btn.disabled = false; }
+    } catch (err) { msg.textContent = `No se pudo descargar: ${err.message}`; btn.disabled = false; }
+  });
   $('#d-redo')?.addEventListener('click', async () => {
     const ok = await dialog({ title: 'Volver a transcribir', body: 'Se rehace el texto a partir del audio guardado. Tarda unos minutos y no borra el audio.', ok: 'Transcribir', cancel: 'Cancelar' });
     if (!ok) return;
@@ -1766,6 +2192,7 @@ async function copyText(t) {
 
 /* ---------- Ajustes ---------- */
 function renderSettings() {
+  renderCloud();
   const f = $('#settings-form').elements;
   f.endpoint.value = settings.endpoint; f.token.value = settings.token; f.lang.value = settings.lang;
   f.segSec.value = String(settings.segSec); f.bitrate.value = String(settings.bitrate); f.live.checked = settings.live;
@@ -1845,7 +2272,9 @@ $('#btn-test').addEventListener('click', async () => {
   const f = $('#settings-form').elements, out = $('#test-out');
   out.textContent = 'Probando…';
   try {
-    const r = await fetch(f.endpoint.value.trim(), { headers: { 'x-app-token': f.token.value.trim() } });
+    const h = await serverHeaders();
+    if (f.token.value.trim()) h['x-app-token'] = f.token.value.trim(); else delete h['x-app-token'];
+    const r = await fetch(f.endpoint.value.trim(), { headers: h });
     const j = await r.json().catch(() => ({}));
     out.textContent = r.ok ? `Conectado. Motor: ${j.model || 'ok'}.`
       : r.status === 401 && j.error ? 'La clave no coincide con la del servidor. Si la cambiaste en Vercel, hacé Redeploy.'
@@ -1889,8 +2318,8 @@ $('#trash-list').addEventListener('click', async (e) => {
     const s = await dbGet('sessions', p.dataset.purge);
     const ok = await dialog({ title: 'Eliminar para siempre', body: `Se borran el audio y el texto de «${s.title}». No se puede deshacer.`, ok: 'Eliminar', cancel: 'Cancelar', danger: true });
     if (!ok) return;
-    await dbDeleteWhere(['chunks', 'segments', 'lines', 'marks'], 'sid', IDBKeyRange.only(s.id));
-    const t = db.transaction('sessions', 'readwrite'); t.objectStore('sessions').delete(s.id); await txDone(t);
+    await purgeLocal(s.id);
+    if (loggedIn()) { await dbPut('outbox', { id: `purge:${s.id}`, name: 'purge', key: s.id, at: Date.now() }, undefined, false, { remote: true }); scheduleSync(500); }
     toast('Eliminada'); renderTrash();
   }
 });
@@ -1973,7 +2402,7 @@ function stopBackground() {
     }
   } catch { /* opcional */ }
 }
-window.addEventListener('online', () => { clearAlert('liveNet'); checkServer(); });
+window.addEventListener('online', () => { clearAlert('liveNet'); checkServer(); scheduleSync(500); });
 window.addEventListener('hashchange', () => { if (/clave=/.test(location.hash)) { applySetupLink(); checkServer(); } });
 window.addEventListener('offline', () => { renderSync(); renderHealth(); });
 navigator.getBattery?.().then((b) => {
@@ -2003,6 +2432,8 @@ async function requeueOldSilent() {
   const done = await dbAll('segments', 'status', 'done');
   for (const g of done) {
     if (g.note !== 'silencio') continue;
+    const owner = await dbGet('sessions', g.sid);
+    if (owner && !isLocalSession(owner)) continue;
     Object.assign(g, { status: 'pending', attempts: 0, result: [], note: undefined, nextTry: 0 });
     await dbPut('segments', g);
   }
@@ -2017,6 +2448,7 @@ async function requeueOldSilent() {
     return;
   }
   await syncSettingsBackup();
+  await initCloud();
   applySetupLink();
   navigator.storage?.persist?.().catch(() => {});
   const recovered = await recoverInterrupted().catch((e) => { console.warn(e); return []; });
@@ -2024,8 +2456,10 @@ async function requeueOldSilent() {
   showRecoveryBanner(recovered);
   renderHealth(); renderRecent(); renderSync();
   setInterval(pumpQueue, 20000);
+  setInterval(() => scheduleSync(0), 30000);
   checkServer();
-  window.__acta = { R, P, settings: () => settings }; // inspección y pruebas
+  scheduleSync(500);
+  window.__acta = { R, P, CLOUD, settings: () => settings, sync: () => sync() }; // inspección y pruebas
 })();
 </script>
 </body>
