@@ -120,7 +120,7 @@ test('backgroundGapMs detecta audio faltante en segundo plano', () => {
 test('migrateSettings: pasa a micrófono natural y apaga el vivo en Android', () => {
   const old = { token: 'x', live: true, segSec: 120 };
   const a = C.migrateSettings(old, true);
-  assert.equal(a.token, 'x'); assert.equal(a.live, false); assert.equal(a.micMode, 'natural'); assert.equal(a.segSec, 0); assert.equal(a.v, 3);
+  assert.equal(a.token, 'x'); assert.equal(a.live, false); assert.equal(a.micMode, 'natural'); assert.equal(a.segSec, 120); assert.equal(a.v, 4);
   const pc = C.migrateSettings(old, false);
   assert.equal(pc.live, true);
   assert.equal(C.migrateSettings(null, true).live, false);
@@ -135,10 +135,12 @@ test('micConstraints: natural sin procesamiento de llamada', () => {
   assert.equal(C.micConstraints('filtro').echoCancellation, true);
 });
 
-test('migrateSettings v2 -> v3: bloques automáticos sin tocar la clave ni el vivo elegido', () => {
+test('migrateSettings: pasa a bloques de 2 min sin tocar la clave ni el vivo elegido', () => {
   const v2 = { v: 2, token: 'k', live: true, segSec: 60, micMode: 'filtro' };
   const r = C.migrateSettings(v2, true);
-  assert.equal(r.segSec, 0); assert.equal(r.token, 'k'); assert.equal(r.live, true); assert.equal(r.micMode, 'filtro');
+  assert.equal(r.segSec, 120); assert.equal(r.token, 'k'); assert.equal(r.live, true); assert.equal(r.micMode, 'filtro');
+  assert.equal(C.migrateSettings({ v: 3, segSec: 0 }, false).segSec, 120);
+  assert.equal(C.migrateSettings({ v: 4, segSec: 0 }, false).segSec, 0, 'si después elige automático, se respeta');
   assert.equal(C.migrateSettings({ v: 2, segSec: 300 }, false).segSec, 300);
 });
 
@@ -212,7 +214,10 @@ test('shouldRotate: bloques automáticos de 15 a 30 s cortados en pausas', () =>
   assert.equal(C.shouldRotate({ lenMs: 16000, quietMs: 300, segSec: 0 }), false);
   assert.equal(C.shouldRotate({ lenMs: 16000, quietMs: 700, segSec: 0 }), true);
   assert.equal(C.shouldRotate({ lenMs: 30000, quietMs: 0, segSec: 0 }), true);
-  assert.equal(C.shouldRotate({ lenMs: 60000, quietMs: 0, segSec: 60 }), true);
+  assert.equal(C.shouldRotate({ lenMs: 60000, quietMs: 0, segSec: 60 }), false, 'fijo: espera una pausa');
+  assert.equal(C.shouldRotate({ lenMs: 61000, quietMs: 700, segSec: 60 }), true);
+  assert.equal(C.shouldRotate({ lenMs: 80000, quietMs: 0, segSec: 60 }), true, 'tope de 20 s extra');
+  assert.equal(C.normalizeSettings({}).segSec, 120);
 });
 
 test('audio para Whisper: nivelado y WAV válido', () => {

@@ -229,7 +229,7 @@ const phone = await browser.newContext({ viewport: { width: 390, height: 844 }, 
 await phone.addInitScript(FAKE_SR);
 let page = await phone.newPage(); watch(page);
 await page.goto(BASE);
-await page.evaluate(() => localStorage.setItem('acta.settings', JSON.stringify({ v: 3, token: 'test-token', segSec: 20, live: true })));
+await page.evaluate(() => localStorage.setItem('acta.settings', JSON.stringify({ v: 4, token: 'test-token', segSec: 20, live: true })));
 await page.reload();
 await page.waitForSelector('#btn-start');
 await page.screenshot({ path: `${OUT}/01-inicio-390.png`, fullPage: true });
@@ -419,7 +419,7 @@ await dp.evaluate(() => localStorage.setItem('acta.settings', JSON.stringify({ t
 await dp.reload();
 await step('Android', async () => {
   const st = await dp.evaluate(() => JSON.parse(localStorage.getItem('acta.settings')));
-  check('Android: los ajustes viejos se actualizan (vivo apagado, mic natural, bloques automáticos)', st.live === false && st.micMode === 'natural' && st.segSec === 0 && st.token === 'test-token', JSON.stringify({ live: st.live, mic: st.micMode, seg: st.segSec }));
+  check('Android: los ajustes viejos se actualizan (vivo apagado, mic natural, bloques de 2 min)', st.live === false && st.micMode === 'natural' && st.segSec === 120 && st.token === 'test-token', JSON.stringify({ live: st.live, mic: st.micMode, seg: st.segSec }));
   await dp.tap('#btn-start');
   await dp.waitForSelector('#live:not([hidden])');
   await dp.waitForTimeout(3000);
@@ -445,7 +445,7 @@ const fresh = await browser.newContext({
 });
 const fp = await fresh.newPage(); watch(fp);
 await fp.goto(BASE);
-await fp.evaluate(() => localStorage.setItem('acta.settings', JSON.stringify({ v: 2, segSec: 20, live: false })));
+await fp.evaluate(() => localStorage.setItem('acta.settings', JSON.stringify({ v: 4, segSec: 20, live: false })));
 await fp.reload();
 await step('Teléfono sin clave', async () => {
   const saysMissing = await fp.waitForFunction(() => /Falta la clave|Entrá a tu cuenta/.test(document.querySelector('#health').textContent), null, { timeout: 5000 }).then(() => true, () => false);
@@ -489,7 +489,7 @@ await step('Teléfono sin clave', async () => {
   const saysWrong = await fp.waitForFunction(() => /no coincide/.test(document.querySelector('#health').textContent), null, { timeout: 5000 }).then(() => true, () => false);
   check('Clave equivocada: el inicio dice que no coincide', saysWrong);
   await fp.click('.tab[data-go="settings"]');
-  const ver = await fp.waitForFunction(() => /6 · 26\/11\/2026/.test(document.querySelector('#storage-kv').textContent), null, { timeout: 5000 }).then(() => true, () => false);
+  const ver = await fp.waitForFunction(() => /7 · 26\/11\/2026/.test(document.querySelector('#storage-kv').textContent), null, { timeout: 5000 }).then(() => true, () => false);
   check('Ajustes muestra la versión de la app', ver);
 });
 
@@ -526,7 +526,7 @@ await step('Actualización y clave', async () => {
   const kv = await up.evaluate(() => new Promise((res) => { const r = indexedDB.open('acta'); r.onsuccess = () => { const q = r.result.transaction('kv').objectStore('kv').get('settings'); q.onsuccess = () => res(q.result); }; }));
   check('La clave queda guardada también en la base de datos', kv && kv.token === 'test-token');
   const st = await up.evaluate(() => JSON.parse(localStorage.getItem('acta.settings')));
-  check('Pasa a bloques automáticos al actualizar', st.segSec === 0 && st.v === 3, `segSec ${st.segSec}`);
+  check('Al actualizar pasa a bloques de 2 min (más precisos)', st.segSec === 120 && st.v === 4, `segSec ${st.segSec}`);
   await up.evaluate(() => localStorage.clear()); // el navegador borró los ajustes rápidos
   await up.reload();
   await up.waitForTimeout(2000);
@@ -535,6 +535,10 @@ await step('Actualización y clave', async () => {
   check('Si se borran los ajustes, la clave se recupera sola', st2.token === 'test-token' && ok);
 });
 await step('Texto casi en vivo en el teléfono', async () => {
+  // Modo automático elegido a mano (el más rápido)
+  await up.evaluate(() => { const s = JSON.parse(localStorage.getItem('acta.settings')); s.segSec = 0; localStorage.setItem('acta.settings', JSON.stringify(s)); });
+  await up.reload();
+  await up.waitForTimeout(1500);
   await up.tap('#btn-start');
   await up.waitForSelector('#live:not([hidden])');
   await up.waitForTimeout(2500);
@@ -575,7 +579,7 @@ const fid = await browser.newContext({ viewport: { width: 1440, height: 900 }, p
 await fid.addInitScript(FAKE_SR_LONG);
 const fx = await fid.newPage(); watch(fx);
 await fx.goto(BASE);
-await fx.evaluate(() => localStorage.setItem('acta.settings', JSON.stringify({ v: 3, token: 'test-token', segSec: 0, live: true, vocab: 'MODORECORTE' })));
+await fx.evaluate(() => localStorage.setItem('acta.settings', JSON.stringify({ v: 4, token: 'test-token', segSec: 0, live: true, vocab: 'MODORECORTE' })));
 await fx.reload();
 await step('Fidelidad', async () => {
   const wav0 = wavCalls;
@@ -624,7 +628,7 @@ const login = async (pg, mode) => {
 };
 const syncNow = (pg) => pg.evaluate(() => window.__acta.sync());
 await step('Sincronización', async () => {
-  for (const pg of [gpc, gph]) { await pg.goto(BASE); await pg.evaluate(() => localStorage.setItem('acta.settings', JSON.stringify({ v: 3, segSec: 0, live: false }))); await pg.reload(); }
+  for (const pg of [gpc, gph]) { await pg.goto(BASE); await pg.evaluate(() => localStorage.setItem('acta.settings', JSON.stringify({ v: 4, segSec: 0, live: false }))); await pg.reload(); }
   check('Nube: crear cuenta en la PC', await login(gpc, 'up'));
   const conn = await gpc.waitForFunction(() => /Transcripción conectada/.test(document.querySelector('#health').textContent) || true, null, { timeout: 3000 }).then(() => true);
   await gpc.click('.tab[data-go="rec"]');

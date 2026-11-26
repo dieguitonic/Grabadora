@@ -339,8 +339,9 @@ dialog::backdrop{background:rgba(16,17,20,.45)}
         </label>
         <label class="field"><span>Bloques</span>
           <select class="input" name="segSec">
-            <option value="0">Automático (casi en vivo)</option>
-            <option value="60">1 minuto</option><option value="120">2 minutos</option>
+            <option value="120">2 minutos (más preciso)</option>
+            <option value="0">Automático (más rápido)</option>
+            <option value="60">1 minuto</option>
             <option value="180">3 minutos</option><option value="300">5 minutos</option>
           </select>
         </label>
@@ -417,8 +418,8 @@ dialog::backdrop{background:rgba(16,17,20,.45)}
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
 <script type="module">
-import * as C from './core.js?v=6';
-const APP_VERSION = '6 · 26/11/2026';
+import * as C from './core.js?v=7';
+const APP_VERSION = '7 · 26/11/2026';
 
 /* =========================================================
    Utilidades
@@ -1143,7 +1144,7 @@ async function transcribeSegment(seg) {
 
   // ¿El bloque anterior salió recortado? Se transcribe de nuevo unido a este, con más contexto de audio.
   const prev = seg.idx > 0 ? await dbGet('segments', [seg.sid, seg.idx - 1]) : null;
-  const mergeWith = prev && prev.status === 'done' && prev.suspect && !prev.merged ? prev : null;
+  let mergeWith = prev && prev.status === 'done' && prev.suspect && !prev.merged ? prev : null;
   let pcm = cur.pcm, sendBlob = null;
   if (mergeWith) {
     const p = await segmentPcm(mergeWith);
@@ -1153,8 +1154,12 @@ async function transcribeSegment(seg) {
       pcm.set(p.pcm, 0); pcm.set(cur.pcm.subarray(skip), p.pcm.length);
     }
   }
-  if (pcm) sendBlob = new Blob([C.encodeWav(C.normalizePeak(pcm).data, 16000)], { type: 'audio/wav' });
-  else sendBlob = cur.blob; // sin decodificador: se manda el original
+  const LIMIT = 4300000; // límite de Vercel
+  const toWav = (x) => (x ? new Blob([C.encodeWav(C.normalizePeak(x).data, 16000)], { type: 'audio/wav' }) : null);
+  let wav = toWav(pcm);
+  if (mergeWith && wav && wav.size > LIMIT) { mergeWith = null; pcm = cur.pcm; wav = toWav(pcm); } // muy largo para unir: solo este bloque
+  if (wav && wav.size > LIMIT) { wav = null; pcm = null; } // bloque largo: se manda el audio comprimido original
+  sendBlob = wav || cur.blob;
   if (sendBlob.size > 4300000) { Object.assign(seg, { status: 'error', error: 'Bloque demasiado grande para el servidor', nextTry: Date.now() + 864e5 }); await save(); return true; }
 
   const name = `bloque-${seg.idx}.${pcm ? 'wav' : C.extForMime(sendBlob.type)}`;

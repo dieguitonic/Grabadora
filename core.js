@@ -1,14 +1,14 @@
 // core.js — Lógica pura de Acta (sin DOM, sin red). Testeada con node --test.
 
 /* ---------- Configuración ---------- */
-export const SETTINGS_VERSION = 3;
+export const SETTINGS_VERSION = 4;
 export const DEFAULT_SETTINGS = Object.freeze({
   v: SETTINGS_VERSION,
   endpoint: '/api/transcribe',
   token: '',
   lang: 'es-AR',
   live: true,
-  segSec: 0, // 0 = automático: bloques cortos cortados en pausas (texto casi en vivo)
+  segSec: 120, // 2 min cortados en una pausa: máxima precisión. 0 = automático (más rápido, menos contexto)
   bitrate: 32000,
   micMode: 'natural',
   customTags: '',
@@ -48,6 +48,7 @@ export function migrateSettings(raw, isAndroid) {
     if (isAndroid) r.live = false;
   }
   if (v < 3 && (!r.segSec || Number(r.segSec) <= 120)) r.segSec = 0; // v3: bloques automáticos
+  if (v < 4 && Number(r.segSec || 0) === 0) r.segSec = 120; // v4: 2 min cortados en pausa (más preciso)
   return normalizeSettings(r);
 }
 
@@ -68,7 +69,11 @@ export const isQuiet = (rms, floor) => rms < Math.max(floor * 2.5, 0.004);
  * después de minMs (15 s), o sí o sí al llegar a maxMs (30 s).
  */
 export function shouldRotate({ lenMs, quietMs, segSec }) {
-  if (segSec > 0) return lenMs >= segSec * 1000;
+  if (segSec > 0) {
+    // Fijo: al cumplir el tiempo se espera la primera pausa real (nunca se corta una palabra); tope +20 s.
+    const t = segSec * 1000;
+    return lenMs >= t + 20000 || (lenMs >= t && quietMs >= AUTO_BLOCK.quietMs);
+  }
   return lenMs >= AUTO_BLOCK.maxMs || (lenMs >= AUTO_BLOCK.minMs && quietMs >= AUTO_BLOCK.quietMs);
 }
 
