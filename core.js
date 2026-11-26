@@ -12,6 +12,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
   bitrate: 32000,
   micMode: 'natural',
   customTags: '',
+  vocab: '',
 });
 
 const clamp = (n, lo, hi) => Math.min(hi, Math.max(lo, n));
@@ -27,6 +28,7 @@ export function normalizeSettings(raw) {
   s.bitrate = [24000, 32000, 48000, 64000].includes(Number(s.bitrate)) ? Number(s.bitrate) : 32000;
   s.customTags = String(s.customTags || '');
   s.micMode = s.micMode === 'filtro' ? 'filtro' : 'natural';
+  s.vocab = String(s.vocab || '').slice(0, 800);
   s.v = SETTINGS_VERSION;
   return s;
 }
@@ -50,7 +52,7 @@ export function migrateSettings(raw, isAndroid) {
 }
 
 /* ---------- Bloques automáticos (texto casi en vivo) ---------- */
-export const AUTO_BLOCK = Object.freeze({ minMs: 8000, maxMs: 20000, quietMs: 450 });
+export const AUTO_BLOCK = Object.freeze({ minMs: 15000, maxMs: 30000, quietMs: 600 });
 
 /** Piso de ruido: baja rápido, sube muy despacio (se adapta a la sala). */
 export function updateNoiseFloor(floor, rms) {
@@ -62,8 +64,8 @@ export function updateNoiseFloor(floor, rms) {
 export const isQuiet = (rms, floor) => rms < Math.max(floor * 2.5, 0.004);
 
 /**
- * ¿Cortar el bloque ahora? Fijo: al cumplir segSec. Automático: en la primera pausa
- * después de minMs, o sí o sí al llegar a maxMs.
+ * ¿Cortar el bloque ahora? Fijo: al cumplir segSec. Automático: en la primera pausa real
+ * después de minMs (15 s), o sí o sí al llegar a maxMs (30 s).
  */
 export function shouldRotate({ lenMs, quietMs, segSec }) {
   if (segSec > 0) return lenMs >= segSec * 1000;
@@ -192,59 +194,155 @@ const HALLUCINATIONS = [
   'www.mooji.org',
 ];
 
+/** Frase inventada conocida: solo si es TODO el tramo (nunca se corta texto real que la contenga). */
 export function isHallucination(text) {
-  const n = normalizeText(text).replace(/[^a-z0-9. ]/g, '').trim();
+  const n = normalizeText(text).replace(/[^a-z0-9. ]/g, '').replace(/\s+/g, ' ').replace(/^[. ]+|[. ]+$/g, '').trim();
   if (!n) return true;
-  return HALLUCINATIONS.some((h) => n === h || (n.length < h.length + 12 && n.includes(h)));
+  return HALLUCINATIONS.includes(n);
 }
 
-/** Limpia segmentos de Whisper: descarta silencio, alucinaciones y repeticiones en bucle. */
+export const wordCount = (s) => compactText(s).split(' ').filter(Boolean).length;
+
+/** Repeticiones en bucle ("sí sí sí sí sí", frases repetidas 5 veces): deja 2, no borra el resto. */
+export function collapseLoops(text) {
+  let words = String(text || '').split(/\s+/).filter(Boolean);
+  const same = (a, b, n) => { for (let k = 0; k < n; k++) if (compactText(words[a + k]) !== compactText(words[b + k])) return false; return true; };
+  for (let n = 1; n <= 6; n++) {
+    const out = [];
+    let i = 0;
+    while (i < words.length) {
+      let reps = 1;
+      while (i + (reps + 1) * n <= words.length && same(i, i + reps * n, n)) reps++;
+      if (reps > 2) { for (let k = 0; k < 2 * n; k++) out.push(words[i + k]); i += reps * n; }
+      else { out.push(words[i]); i += 1; }
+    }
+    words = out;
+  }
+  return words.join(' ');
+}
+
+/**
+ * Limpia la respuesta de Whisper SIN borrar texto real:
+ * - quita solo frases inventadas conocidas que ocupan todo el tramo;
+ * - reduce bucles de repetición;
+ * - marca (no borra) los tramos de baja confianza.
+ */
 export function cleanWhisperSegments(segments) {
   const out = [];
   for (const s of Array.isArray(segments) ? segments : []) {
-    const text = String(s.text || '').replace(/\s+/g, ' ').trim();
-    if (!text) continue;
-    if ((s.no_speech_prob ?? 0) > 0.6 && (s.avg_logprob ?? 0) < -0.8) continue;
-    if ((s.compression_ratio ?? 0) > 2.6) continue;
-    if (isHallucination(text)) continue;
+    const raw = String(s.text || '').replace(/\s+/g, ' ').trim();
+    if (!raw || isHallucination(raw)) continue;
+    const text = collapseLoops(raw);
     const prev = out[out.length - 1];
-    if (prev && normalizeText(prev.text) === normalizeText(text)) continue;
-    out.push({ start: Number(s.start) || 0, end: Number(s.end) || 0, text });
+    if (prev && text.length >= 20 && compactText(prev.text) === compactText(text)) continue; // misma oración larga duplicada = bucle
+    const seg = { start: Number(s.start) || 0, end: Number(s.end) || 0, text };
+    if ((s.no_speech_prob ?? 0) > 0.6 || (s.avg_logprob ?? 0) < -1) seg.low = true;
+    out.push(seg);
   }
   return out;
 }
 
-/** Últimas ~200 letras de texto previo, cortadas en palabra, como contexto para Whisper. */
-export function promptTail(text, max = 200) {
-  const t = String(text || '').replace(/\s+/g, ' ').trim();
-  if (t.length <= max) return t;
-  const cut = t.slice(-max);
-  const sp = cut.indexOf(' ');
-  return sp > -1 ? cut.slice(sp + 1) : cut;
+/**
+ * Los bloques se solapan ~1 s para no perder palabras en el corte. Quita del comienzo del
+ * bloque nuevo las palabras que repiten el final del anterior (al menos 2 palabras seguidas).
+ */
+export function dedupeBoundary(prevResult, nextResult, maxWords = 10) {
+  const prevWords = (prevResult || []).map((s) => s.text).join(' ').split(/\s+/).filter(Boolean);
+  const next = (nextResult || []).map((s) => ({ ...s, words: s.text.split(/\s+/).filter(Boolean) }));
+  const head = next.flatMap((s) => s.words).slice(0, maxWords);
+  let k = 0;
+  for (let n = Math.min(maxWords, prevWords.length, head.length); n >= 2; n--) {
+    const a = prevWords.slice(-n).map(compactText).join(' ');
+    const b = head.slice(0, n).map(compactText).join(' ');
+    if (a && a === b) { k = n; break; }
+  }
+  if (!k) return nextResult || [];
+  const out = [];
+  for (const s of next) {
+    const drop = Math.min(k, s.words.length);
+    k -= drop;
+    const words = s.words.slice(drop);
+    if (!words.length) continue;
+    const { words: _w, ...rest } = s;
+    out.push({ ...rest, text: words.join(' ') });
+  }
+  return out;
+}
+
+/** El texto final de un tramo salió sospechosamente más corto que lo que se dijo (según el borrador). */
+export function isSuspectTruncation(finalWords, draftWords) {
+  return draftWords >= 8 && finalWords < draftWords * 0.5;
+}
+
+/** Vocabulario para Whisper: solo palabras del usuario (nunca texto anterior, que lo hace saltear partes). */
+export function vocabPrompt(vocab) {
+  const words = String(vocab || '').split(/[,;\n]/).map((w) => w.trim()).filter(Boolean);
+  if (!words.length) return '';
+  let p = '';
+  for (const w of words) { const next = p ? `${p}, ${w}` : w; if (next.length > 600) break; p = next; }
+  return p ? `Reunión de trabajo en español rioplatense. Vocabulario: ${p}.` : '';
 }
 
 /**
  * Arma la transcripción ordenada por tiempo.
- * - Segmentos con transcripción final reemplazan al borrador en vivo de su rango.
- * - Las marcas se intercalan.
+ * - Un borrador en vivo se reemplaza solo cuando TODO su tramo (inicio a fin) tiene texto final.
+ * - Los bloques marcados keepDraft (posible recorte) dejan ver también el borrador.
+ * - Los tramos de baja confianza se muestran marcados, nunca se borran.
  */
 export function buildTranscript({ segments = [], live = [], marks = [] }) {
   const items = [];
-  const doneRanges = [];
+  const ranges = [];
   for (const seg of segments) {
     if (seg.status !== 'done') continue;
-    const end = seg.endMs ?? Infinity;
-    doneRanges.push([seg.startMs, end]);
+    if (!seg.keepDraft) ranges.push([seg.startMs, seg.endMs ?? Infinity]);
     for (const s of seg.result || []) {
-      items.push({ kind: 'final', ms: Math.round(seg.startMs + s.start * 1000), text: s.text });
+      const it = { kind: 'final', ms: Math.round(seg.startMs + s.start * 1000), text: s.text };
+      if (s.low) it.low = true;
+      items.push(it);
     }
   }
-  const covered = (ms) => doneRanges.some(([a, b]) => ms >= a && ms < b);
-  for (const l of live) if (!covered(l.ms)) items.push({ kind: 'draft', ms: l.ms, text: l.text });
+  ranges.sort((a, b) => a[0] - b[0]);
+  const merged = [];
+  for (const r of ranges) {
+    const last = merged[merged.length - 1];
+    if (last && r[0] <= last[1] + 1500) last[1] = Math.max(last[1], r[1]); // bloques contiguos (con solapamiento)
+    else merged.push([...r]);
+  }
+  const covered = (a, b) => merged.some(([s, e]) => a >= s && b <= e);
+  for (const l of live) {
+    if (!covered(l.ms, Math.max(l.ms, l.end ?? l.ms))) items.push({ kind: 'draft', ms: l.ms, text: l.text });
+  }
   for (const m of marks) items.push({ kind: 'mark', ms: m.ms, text: m.text || 'Marca', type: m.type || 'user' });
   const order = { mark: 0, final: 1, draft: 2 };
   items.sort((a, b) => a.ms - b.ms || order[a.kind] - order[b.kind]);
   return items;
+}
+
+/* ---------- Audio para transcribir: 16 kHz mono, nivelado ---------- */
+/** Sube voces lejanas: normaliza el pico a `target` sin pasar de `maxGain`. */
+export function normalizePeak(data, target = 0.9, maxGain = 20) {
+  let peak = 0;
+  for (let i = 0; i < data.length; i++) { const a = Math.abs(data[i]); if (a > peak) peak = a; }
+  const gain = peak > 0 ? Math.min(maxGain, target / peak) : 1;
+  const out = new Float32Array(data.length);
+  for (let i = 0; i < data.length; i++) out[i] = data[i] * gain;
+  return { data: out, gain };
+}
+
+/** WAV PCM 16 bits mono. */
+export function encodeWav(data, rate) {
+  const buf = new ArrayBuffer(44 + data.length * 2);
+  const v = new DataView(buf);
+  const w = (o, s) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
+  w(0, 'RIFF'); v.setUint32(4, 36 + data.length * 2, true); w(8, 'WAVE'); w(12, 'fmt ');
+  v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+  v.setUint32(24, rate, true); v.setUint32(28, rate * 2, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true);
+  w(36, 'data'); v.setUint32(40, data.length * 2, true);
+  for (let i = 0; i < data.length; i++) {
+    const x = Math.max(-1, Math.min(1, data[i]));
+    v.setInt16(44 + i * 2, x < 0 ? x * 0x8000 : x * 0x7fff, true);
+  }
+  return buf;
 }
 
 export function transcriptPlain(items) {
@@ -252,7 +350,7 @@ export function transcriptPlain(items) {
     .filter((i) => i.kind !== 'draft' || i.text)
     .map((i) => i.kind === 'mark'
       ? `[${formatDuration(i.ms)}] ★ ${i.text}`
-      : `[${formatDuration(i.ms)}] ${i.text}`)
+      : `[${formatDuration(i.ms)}] ${i.text}${i.low ? ' [audio poco claro]' : ''}`)
     .join('\n');
 }
 

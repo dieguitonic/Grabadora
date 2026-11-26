@@ -156,6 +156,7 @@ textarea.input{min-height:96px;resize:vertical;line-height:1.45}
 .line.draft p{color:var(--ink-2)}
 .line.interim p{color:var(--ink-3);font-style:italic}
 .line.mark p{font-weight:650}
+.line.low p{-webkit-text-decoration:underline dotted #C98A2B;text-decoration:underline dotted #C98A2B;text-underline-offset:4px}
 .line.pending p{color:var(--ink-3);display:flex;align-items:center;gap:8px;font-size:.9375rem}
 .line.pending i{width:8px;height:8px;border-radius:50%;background:var(--accent);flex:none}
 @media (prefers-reduced-motion:no-preference){.line.pending i{animation:pulse 1.6s ease-in-out infinite}}
@@ -363,6 +364,10 @@ dialog::backdrop{background:rgba(16,17,20,.45)}
         <label class="switch"><span><b>Transcripción en vivo</b><br><span class="small muted">Borrador instantáneo mientras hablan. La versión final llega por bloques.</span></span><input type="checkbox" name="live"></label>
         <p class="help" id="live-help"></p>
       </div>
+      <label class="field"><span>Vocabulario (nombres y palabras que se dicen seguido)</span>
+        <textarea class="input" name="vocab" placeholder="Valtti, Keller, CRM, cuota, garante, Estudio Albeck"></textarea>
+        <p class="help">Ayuda a escribir bien nombres de clientes, marcas y términos. Separalos con comas.</p>
+      </label>
       <label class="field"><span>Temas propios para etiquetar</span>
         <textarea class="input" name="customTags" placeholder="Valtti: valtti, balti, motos; Ciclos: ciclos, paneles"></textarea>
         <p class="help">Formato: <b>Tema: palabra, palabra;</b> uno por línea o separados por punto y coma.</p>
@@ -408,8 +413,8 @@ dialog::backdrop{background:rgba(16,17,20,.45)}
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
 <script type="module">
-import * as C from './core.js?v=4';
-const APP_VERSION = '4 · 25/11/2026';
+import * as C from './core.js?v=5';
+const APP_VERSION = '5 · 25/11/2026';
 
 /* =========================================================
    Utilidades
@@ -421,6 +426,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const uid = () => (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2));
 const vibrate = (p) => { try { navigator.vibrate?.(p); } catch { /* sin vibración */ } };
 const TIMESLICE = 2000;
+const OVERLAP_MS = 1200; // los bloques se solapan para no perder palabras en el corte
 const ICON = {
   pause: '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="5" width="4" height="14" rx="1.5"/><rect x="14" y="5" width="4" height="14" rx="1.5"/></svg>',
   play: '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5.5v13a1 1 0 0 0 1.5.86l10-6.5a1 1 0 0 0 0-1.72l-10-6.5A1 1 0 0 0 8 5.5Z"/></svg>',
@@ -680,12 +686,12 @@ function startMaster() {
   R.master = makeRecorder('m', R.masterPart);
   saveSession();
 }
-function startSegment() {
+function startSegment(overlapPrev = false) {
   R.segIdx += 1;
   R.segStartMs = activeMs();
   R.segMax = 0;
   R.quietMs = 0;
-  R.segRec = { sid: R.sid, idx: R.segIdx, startMs: Math.round(R.segStartMs), endMs: null, status: 'recording', attempts: 0, maxLevel: 0, mime: R.mime };
+  R.segRec = { sid: R.sid, idx: R.segIdx, startMs: Math.round(R.segStartMs), endMs: null, status: 'recording', attempts: 0, maxLevel: 0, mime: R.mime, overlapPrev: !!overlapPrev };
   dbPut('segments', R.segRec).catch(() => {});
   R.seg = makeRecorder('s', R.segIdx);
 }
@@ -705,10 +711,10 @@ function maybeRotate() {
 function rotateSegment() {
   const oldMr = R.seg, oldSeg = R.segRec;
   oldSeg.maxLevel = R.segMax;
-  startSegment();
+  startSegment(true);
   oldSeg.endMs = R.segRec.startMs;
-  // Superposición de 0,5 s: el bloque nuevo ya graba antes de cerrar el viejo (sin huecos).
-  setTimeout(() => closeSegment(oldMr, oldSeg), 500);
+  // El bloque nuevo ya graba antes de cerrar el viejo: 1,2 s compartidos, sin huecos ni palabras cortadas.
+  setTimeout(() => closeSegment(oldMr, oldSeg), OVERLAP_MS);
 }
 
 let saveTimer = 0;
@@ -1018,14 +1024,15 @@ async function commitLive(text, run, ms) {
   const r = C.mergeLiveFinal(R.live, text, ms ?? Math.round(activeMs()), run);
   if (r.op === 'skip') return;
   if (r.op === 'add') {
-    const line = { ...r.line, sid: R.sid };
+    const line = { ...r.line, sid: R.sid, end: Math.round(activeMs()) };
     R.live.push(line);
-    try { line.key = await dbPut('lines', { sid: line.sid, ms: line.ms, text: line.text, run }); } catch { /* queda en memoria */ }
+    try { line.key = await dbPut('lines', { sid: line.sid, ms: line.ms, end: line.end, text: line.text, run }); } catch { /* queda en memoria */ }
     appendLine({ kind: 'draft', ms: line.ms, text: line.text });
   } else {
     const line = R.live[r.index];
     line.text = r.line.text;
-    if (line.key !== undefined) dbPut('lines', { sid: line.sid, ms: line.ms, text: line.text, run }, line.key).catch(() => {});
+    line.end = Math.round(activeMs());
+    if (line.key !== undefined) dbPut('lines', { sid: line.sid, ms: line.ms, end: line.end, text: line.text, run }, line.key).catch(() => {});
     const drafts = $$('#live-t .line.draft');
     const last = drafts[drafts.length - 1];
     if (last) last.querySelector('p').textContent = line.text;
@@ -1082,20 +1089,62 @@ async function nextSegment() {
   list.sort((a, b) => (b.sid === R.sid) - (a.sid === R.sid) || byId.get(a.sid).createdAt - byId.get(b.sid).createdAt || a.idx - b.idx);
   return list[0] || null;
 }
-async function transcribeSegment(seg) {
-  const save = async () => { await dbPut('segments', seg); onSegmentChange(seg); };
+/** Audio del bloque para Whisper: 16 kHz mono, compresión suave y nivelado (sube voces lejanas). null si no se puede. */
+async function prepareAudio(blob) {
+  try {
+    const OAC = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+    if (!OAC) return null;
+    const dec = await new OAC(1, 1, 16000).decodeAudioData(await blob.arrayBuffer());
+    const oc = new OAC(1, Math.max(1, Math.ceil(dec.duration * 16000)), 16000);
+    const src = oc.createBufferSource();
+    src.buffer = dec;
+    const comp = oc.createDynamicsCompressor();
+    comp.threshold.value = -40; comp.knee.value = 24; comp.ratio.value = 4; comp.attack.value = 0.003; comp.release.value = 0.25;
+    src.connect(comp).connect(oc.destination);
+    src.start();
+    const out = await oc.startRendering();
+    return out.getChannelData(0);
+  } catch { return null; }
+}
+async function segmentPcm(seg) {
   const rows = await dbAll('chunks', 'track', IDBKeyRange.only([seg.sid, 's', seg.idx]));
-  if (!rows.length) { Object.assign(seg, { status: 'done', result: [], note: 'sin audio' }); await save(); return true; }
+  if (!rows.length) return { rows, pcm: null, blob: null };
   const type = (seg.mime || 'audio/webm').split(';')[0];
   const blob = new Blob(rows.map((r) => r.buf), { type });
-  if (blob.size > 4300000) { Object.assign(seg, { status: 'error', error: 'Bloque demasiado grande para el servidor', nextTry: Date.now() + 864e5 }); await save(); return true; }
+  return { rows, blob, pcm: await prepareAudio(blob) };
+}
+/** Palabras del borrador en vivo dentro de un tramo (para detectar recortes). */
+async function draftWordsIn(sid, a, b) {
+  const lines = await dbAll('lines', 'sid', sid);
+  return lines.filter((l) => l.ms >= a - 500 && l.ms < b).reduce((n, l) => n + C.wordCount(l.text), 0);
+}
+async function transcribeSegment(seg) {
+  const save = async (g = seg) => { await dbPut('segments', g); onSegmentChange(g); };
+  const cur = await segmentPcm(seg);
+  if (!cur.rows.length) { Object.assign(seg, { status: 'done', result: [], note: 'sin audio' }); await save(); return true; }
+
+  // ¿El bloque anterior salió recortado? Se transcribe de nuevo unido a este, con más contexto de audio.
   const prev = seg.idx > 0 ? await dbGet('segments', [seg.sid, seg.idx - 1]) : null;
-  const prompt = C.promptTail((prev?.result || []).map((s) => s.text).join(' '));
-  const name = `bloque-${seg.idx}.${C.extForMime(type)}`;
+  const mergeWith = prev && prev.status === 'done' && prev.suspect && !prev.merged ? prev : null;
+  let pcm = cur.pcm, sendBlob = null;
+  if (mergeWith) {
+    const p = await segmentPcm(mergeWith);
+    if (p.pcm && cur.pcm) {
+      const skip = seg.overlapPrev ? Math.min(cur.pcm.length, Math.round(OVERLAP_MS * 16)) : 0; // sin repetir el tramo compartido
+      pcm = new Float32Array(p.pcm.length + cur.pcm.length - skip);
+      pcm.set(p.pcm, 0); pcm.set(cur.pcm.subarray(skip), p.pcm.length);
+    }
+  }
+  if (pcm) sendBlob = new Blob([C.encodeWav(C.normalizePeak(pcm).data, 16000)], { type: 'audio/wav' });
+  else sendBlob = cur.blob; // sin decodificador: se manda el original
+  if (sendBlob.size > 4300000) { Object.assign(seg, { status: 'error', error: 'Bloque demasiado grande para el servidor', nextTry: Date.now() + 864e5 }); await save(); return true; }
+
+  const name = `bloque-${seg.idx}.${pcm ? 'wav' : C.extForMime(sendBlob.type)}`;
   const fd = new FormData();
-  fd.append('file', blob, name);
+  fd.append('file', sendBlob, name);
   fd.append('name', name);
   fd.append('language', C.whisperLang(settings.lang));
+  const prompt = C.vocabPrompt(settings.vocab);
   if (prompt) fd.append('prompt', prompt);
   const fail = async (msg, retryMs) => {
     seg.attempts = (seg.attempts || 0) + 1;
@@ -1118,8 +1167,23 @@ async function transcribeSegment(seg) {
   }
   let data;
   try { data = await res.json(); } catch { return fail('Respuesta inválida del servidor'); }
-  const segments = Array.isArray(data.segments) && data.segments.length ? data.segments : [{ start: 0, end: 0, text: data.text || '' }];
-  Object.assign(seg, { status: 'done', result: C.cleanWhisperSegments(segments), doneAt: Date.now(), error: undefined, nextTry: undefined });
+  const raw = Array.isArray(data.segments) && data.segments.length ? data.segments : [{ start: 0, end: 0, text: data.text || '' }];
+  let result = C.cleanWhisperSegments(raw);
+
+  if (mergeWith) {
+    // El texto unido queda en el bloque anterior; este queda vacío y marcado como unido.
+    const a = mergeWith.startMs, b = seg.endMs ?? (mergeWith.endMs + 30000);
+    const finalW = result.reduce((n, r) => n + C.wordCount(r.text), 0);
+    Object.assign(mergeWith, { result, raw, merged: true, endMs: b, keepDraft: C.isSuspectTruncation(finalW, await draftWordsIn(seg.sid, a, b)) });
+    await dbPut('segments', mergeWith);
+    Object.assign(seg, { status: 'done', result: [], raw: [], note: 'unido', mergedInto: mergeWith.idx, doneAt: Date.now(), error: undefined, nextTry: undefined });
+    await save(); onSegmentChange(mergeWith);
+    return true;
+  }
+  if (seg.overlapPrev && prev && prev.status === 'done' && prev.result?.length) result = C.dedupeBoundary(prev.result, result);
+  const finalW = result.reduce((n, r) => n + C.wordCount(r.text), 0);
+  const suspect = C.isSuspectTruncation(finalW, await draftWordsIn(seg.sid, seg.startMs, seg.endMs ?? Infinity));
+  Object.assign(seg, { status: 'done', result, raw, suspect, keepDraft: suspect, doneAt: Date.now(), error: undefined, nextTry: undefined });
   await save();
   return true;
 }
@@ -1262,7 +1326,7 @@ function updateLiveUI() {
     (R.wakeOk ? '' : '<span style="color:var(--warn)">Dejá la pantalla encendida</span>');
 }
 function lineHTML(i, asButton = false) {
-  const cls = i.kind === 'mark' ? (i.type === 'gap' ? 'mark gap' : 'mark') : i.kind;
+  const cls = i.kind === 'mark' ? (i.type === 'gap' ? 'mark gap' : 'mark') : i.kind + (i.low ? ' low' : '');
   const tag = asButton && i.kind !== 'mark' ? 'button' : 'div';
   const attrs = asButton ? ` data-ms="${i.ms}"${tag === 'button' ? ' type="button"' : ''}` : '';
   const editable = i.kind === 'mark' && i.type === 'user' && i.key !== undefined ? ` data-mark="${i.key}" role="button" tabindex="0"` : '';
@@ -1288,7 +1352,7 @@ function renderLivePanel() {
     ? items.map((i) => lineHTML(i)).join('') + INTERIM_HTML
     : '<p class="empty small" id="live-empty">Lo que se diga aparece acá.</p>' + INTERIM_HTML;
   $('#legend').textContent = liveAvailable()
-    ? 'Gris: borrador en vivo. Negro: versión final corregida (llega por bloques).'
+    ? 'Gris: borrador en vivo. Negro: texto final. Subrayado punteado: audio poco claro (se muestra igual, nunca se borra).'
     : 'El texto llega por bloques, ya corregido, a medida que se transcribe.';
   if (stick) scrollLiveToEnd();
 }
@@ -1706,6 +1770,7 @@ function renderSettings() {
   f.endpoint.value = settings.endpoint; f.token.value = settings.token; f.lang.value = settings.lang;
   f.segSec.value = String(settings.segSec); f.bitrate.value = String(settings.bitrate); f.live.checked = settings.live;
   f.customTags.value = settings.customTags;
+  f.vocab.value = settings.vocab;
   f.micMode.value = settings.micMode;
   $('#live-help').innerHTML = !SR ? 'Este navegador no ofrece reconocimiento de voz en vivo.'
     : IS_ANDROID && store.get('liveConflict') !== '1' ? 'En Android conviene dejarla apagada: el borrador en vivo le quita el micrófono a la grabación y el audio sale entrecortado. Con bloques automáticos el texto aparece a los pocos segundos de cada frase.'
@@ -1728,7 +1793,7 @@ async function renderStorage() {
 $('#settings-form').addEventListener('submit', (e) => {
   e.preventDefault();
   const f = e.currentTarget.elements;
-  saveSettings({ endpoint: f.endpoint.value, token: f.token.value, lang: f.lang.value, segSec: f.segSec.value, bitrate: f.bitrate.value, live: f.live.checked, micMode: f.micMode.value, customTags: f.customTags.value });
+  saveSettings({ endpoint: f.endpoint.value, token: f.token.value, lang: f.lang.value, segSec: f.segSec.value, bitrate: f.bitrate.value, live: f.live.checked, micMode: f.micMode.value, customTags: f.customTags.value, vocab: f.vocab.value });
   P.blocked = '';
   toast('Ajustes guardados'); checkServer();
 });

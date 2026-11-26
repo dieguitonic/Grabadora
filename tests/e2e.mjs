@@ -20,13 +20,27 @@ const check = (name, ok, extra = '') => { results.push([name, !!ok]); console.lo
 const step = async (name, fn) => { try { await fn(); } catch (e) { check(name, false, String(e.message).split('\n')[0]); } };
 
 /* ---------- Whisper simulado ---------- */
-let calls = 0;
+let calls = 0, wavCalls = 0, mergedCalls = 0;
+const FRASE = 'Necesitamos que el sistema registre cada contrato con la cuota el vencimiento y quién es el garante de cada cliente para poder cobrar a tiempo todos los meses sin errores';
 const upstream = http.createServer((req, res) => {
   let size = 0;
-  req.on('data', (c) => { size += c.length; });
+  const parts = [];
+  req.on('data', (c) => { size += c.length; parts.push(c); });
   req.on('end', () => {
     calls += 1;
+    const body = Buffer.concat(parts).toString('latin1');
+    if (/Content-Type: audio\/wav/i.test(body)) wavCalls += 1;
     const ok = req.headers.authorization === 'Bearer fake-key' && size > 500;
+    if (ok && body.includes('MODORECORTE')) {
+      // Simula el caso reportado: con poco audio Whisper devuelve 4 palabras; con el tramo unido, la frase completa.
+      const merged = size > 26 * 32000;
+      if (merged) mergedCalls += 1;
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ text: 'x', segments: merged
+        ? [{ start: 7.8, end: 15, text: ' ' + FRASE + '.', no_speech_prob: 0.65, avg_logprob: -1.2, compression_ratio: 1.3 }]
+        : [{ start: 7.8, end: 9, text: ' Necesitamos que el sistema.', no_speech_prob: 0.1, avg_logprob: -0.4 }] }));
+      return;
+    }
     res.writeHead(ok ? 200 : 400, { 'content-type': 'application/json' });
     res.end(JSON.stringify(ok ? {
       text: 'x', duration: 20,
@@ -104,7 +118,7 @@ const phone = await browser.newContext({ viewport: { width: 390, height: 844 }, 
 await phone.addInitScript(FAKE_SR);
 let page = await phone.newPage(); watch(page);
 await page.goto(BASE);
-await page.evaluate(() => localStorage.setItem('acta.settings', JSON.stringify({ token: 'test-token', segSec: 20, live: true })));
+await page.evaluate(() => localStorage.setItem('acta.settings', JSON.stringify({ v: 3, token: 'test-token', segSec: 20, live: true })));
 await page.reload();
 await page.waitForSelector('#btn-start');
 await page.screenshot({ path: `${OUT}/01-inicio-390.png`, fullPage: true });
@@ -364,7 +378,7 @@ await step('Teléfono sin clave', async () => {
   const saysWrong = await fp.waitForFunction(() => /no coincide/.test(document.querySelector('#health').textContent), null, { timeout: 5000 }).then(() => true, () => false);
   check('Clave equivocada: el inicio dice que no coincide', saysWrong);
   await fp.click('.tab[data-go="settings"]');
-  const ver = await fp.waitForFunction(() => /4 · 25\/11\/2026/.test(document.querySelector('#storage-kv').textContent), null, { timeout: 5000 }).then(() => true, () => false);
+  const ver = await fp.waitForFunction(() => /5 · 25\/11\/2026/.test(document.querySelector('#storage-kv').textContent), null, { timeout: 5000 }).then(() => true, () => false);
   check('Ajustes muestra la versión de la app', ver);
 });
 
@@ -416,15 +430,67 @@ await step('Texto casi en vivo en el teléfono', async () => {
   check('Mientras graba muestra que está escuchando', await up.evaluate(() => !document.querySelector('#pending').hidden));
   const t0 = Date.now();
   const first = await up.waitForFunction(() => /relevamiento del proceso/.test(document.querySelector('#live-t').textContent), null, { timeout: 30000, polling: 500 }).then(() => Date.now() - t0 + 2500, () => 0);
-  check('El primer texto aparece a los pocos segundos de hablar', first > 0 && first < 18000, `${Math.round(first / 1000)} s desde que empezó`);
-  await up.waitForTimeout(16000);
+  check('El primer texto aparece en cuanto se cierra el primer bloque', first > 0 && first < 35000, `${Math.round(first / 1000)} s desde que empezó`);
+  await up.waitForTimeout(17000);
   const segs = (await getAll(up, 'segments')).filter((g) => g.sid !== 'vieja-1');
   const closed = segs.filter((g) => g.endMs);
   const lens = closed.map((g) => (g.endMs - g.startMs) / 1000);
-  check('Los bloques automáticos duran entre 8 y 20 s', closed.length >= 2 && lens.every((x) => x >= 7.5 && x <= 21), lens.map((x) => x.toFixed(1)).join(', '));
+  check('Los bloques automáticos duran entre 15 y 30 s', closed.length >= 2 && lens.every((x) => x >= 14.5 && x <= 31), lens.map((x) => x.toFixed(1)).join(', '));
   check('Cada bloque se transcribe enseguida', segs.filter((g) => g.status === 'done').length >= closed.length - 1, `${segs.filter((g) => g.status === 'done').length}/${closed.length}`);
   await up.screenshot({ path: `${OUT}/09-casi-en-vivo-390.png` });
   await stopRec(up);
+});
+
+/* =========================================================
+   F) FIDELIDAD: frase larga recortada por Whisper (el caso reportado en la PC)
+   ========================================================= */
+const FAKE_SR_LONG = () => {
+  class S {
+    start() {
+      if (window.__said) return;
+      this.t = setTimeout(() => {
+        window.__said = true;
+        const r = [{ transcript: 'Necesitamos que el sistema registre cada contrato con la cuota el vencimiento y quién es el garante de cada cliente para poder cobrar a tiempo todos los meses sin errores' }];
+        r.isFinal = true;
+        this.onresult?.({ resultIndex: 0, results: [r] });
+      }, 9000);
+    }
+    stop() { clearTimeout(this.t); setTimeout(() => this.onend?.(), 50); }
+    abort() { clearTimeout(this.t); setTimeout(() => this.onend?.(), 10); }
+  }
+  window.webkitSpeechRecognition = S; window.SpeechRecognition = S;
+};
+const fid = await browser.newContext({ viewport: { width: 1440, height: 900 }, permissions: ['microphone'] });
+await fid.addInitScript(FAKE_SR_LONG);
+const fx = await fid.newPage(); watch(fx);
+await fx.goto(BASE);
+await fx.evaluate(() => localStorage.setItem('acta.settings', JSON.stringify({ v: 3, token: 'test-token', segSec: 0, live: true, vocab: 'MODORECORTE' })));
+await fx.reload();
+await step('Fidelidad', async () => {
+  const wav0 = wavCalls;
+  await fx.click('#btn-start');
+  await fx.waitForSelector('#live:not([hidden])');
+  // 1) Whisper devuelve el bloque recortado: el borrador completo NO desaparece
+  const suspect = await fx.waitForFunction(() => window.__acta.R.doneSegs.some((g) => g.idx === 0 && g.suspect), null, { timeout: 40000, polling: 300 }).then(() => true, () => false);
+  check('Detecta que el texto final salió recortado', suspect);
+  check('Mientras tanto la frase completa sigue en pantalla', /garante de cada cliente/.test(await fx.textContent('#live-t')));
+  // 2) Al cerrarse el bloque siguiente, retranscribe uniendo ambos
+  const merged = await fx.waitForFunction(() => window.__acta.R.doneSegs.some((g) => g.idx === 0 && g.merged), null, { timeout: 40000, polling: 300 }).then(() => true, () => false);
+  check('Vuelve a transcribir el tramo unido al bloque siguiente', merged && mergedCalls >= 1, `${mergedCalls} pedido(s) unidos`);
+  await stopRec(fx);
+  await fx.waitForTimeout(5000);
+  const finals = await fx.$$eval('#d-transcript .line.final', (n) => n.map((x) => ({ t: x.textContent, low: x.classList.contains('low') })));
+  const hit = finals.find((f) => /garante de cada cliente para poder cobrar a tiempo/.test(f.t));
+  check('La frase queda completa y textual en la transcripción final', !!hit);
+  check('Un tramo con audio poco claro se muestra marcado, no se borra', hit && hit.low);
+  const drafts = await fx.$$eval('#d-transcript .line.draft', (n) => n.map((x) => x.textContent).join(' '));
+  check('Con el texto final completo, el borrador ya no se duplica', !/garante de cada cliente/.test(drafts));
+  const segs = await getAll(fx, 'segments');
+  check('El bloque unido queda registrado y se guarda la respuesta original', segs.some((g) => g.note === 'unido') && segs.every((g) => g.status === 'done' && Array.isArray(g.raw)));
+  check('Manda a Whisper audio nivelado (WAV 16 kHz)', wavCalls > wav0, `${wavCalls - wav0} WAV`);
+  const plain = await fx.evaluate(() => document.querySelector('#d-transcript').textContent);
+  check('No quedan textos inventados', !/Amara/.test(plain));
+  await fx.screenshot({ path: `${OUT}/10-fidelidad-1440.png`, fullPage: true });
 });
 
 const bad = await fetch(BASE + 'api/transcribe', { headers: { 'x-app-token': 'mala' } });

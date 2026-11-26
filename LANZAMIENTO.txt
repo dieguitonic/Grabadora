@@ -69,6 +69,10 @@ ESTRUCTURA
   g. MICROFONO: Ajustes > Probar micrófono. Hablá a un metro del teléfono y escuchá la prueba.
      Debe sonar como una nota de voz de WhatsApp. "Natural" es el modo recomendado; "Con filtro"
      es el modo llamada (recorta voces lejanas).
+  i. VOCABULARIO: Ajustes > Vocabulario. Cargá nombres de clientes, marcas y términos que se dicen
+     seguido, separados por comas: mejora cómo se escriben.
+  j. FIDELIDAD: el texto nunca se borra. Lo que se oyó con poca claridad aparece subrayado en
+     punteado (y en "Copiar para Claude" con la marca [audio poco claro]).
   h. En Android la transcripción en vivo viene apagada a propósito: le quita el micrófono a la
      grabación y el audio sale entrecortado. El texto llega por bloques de 1 minuto.
 
